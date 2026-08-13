@@ -69,12 +69,16 @@ These have no visual equivalent. If you do not run them, you do not know.
    assembly (a vehicle body, a frame of ~60 modules) that returns numbers with
    no meaning; use `pairwise_intersections` instead. Its `margin` produces a
    third `mode`, `"near"`, via a real point-to-surface distance query
-   (`BVHTree.find_nearest`) — **not** `BVHTree`'s own `epsilon` parameter,
-   which was measured to have zero effect on separated geometry at any
-   size, only on geometry already touching. `margin` never reaches the
-   containment check either: a fully separate pair is never reported
-   "contained" no matter how large `margin` is. And the containment check
-   itself uses **several probe points**
+   (`BVHTree.find_nearest`) — **never** `BVHTree`'s own `epsilon` parameter,
+   which the BVH is always built with at `0.0` regardless of `margin`: it
+   was measured to have zero effect on separated geometry at any size, and
+   worse, passing `margin` as epsilon was measured to break the containment
+   ray cast outright (it pads the surface enough that the ray's step-off
+   re-hits it, exhausting the 64-hit cap and falsely raising `cap_reached`
+   on ordinary, separated parts). `margin` never reaches the containment
+   check either: a fully separate pair is never reported "contained" no
+   matter how large `margin` is. And the containment check itself uses
+   **several probe points**
    (face centers nudged inward, plus the centroid), not the centroid alone:
    a channel section, a tube, a rim or an angled bracket has its centroid in
    the empty space it wraps around, not in its material, so a single-probe

@@ -203,7 +203,15 @@ def _bvh(name, margin=0.0, max_probes=16):
     nmat = mw.inverted_safe().transposed().to_3x3()
     verts = [mw @ v.co for v in m.vertices]
     polys = [list(p.vertices) for p in m.polygons]
-    t = BVHTree.FromPolygons(verts, polys, all_triangles=False, epsilon=margin)
+    # epsilon is ALWAYS 0.0, never `margin`. Passing margin here does not buy
+    # proximity detection (measured: zero effect on separated geometry, see
+    # _any_near) — it only pads the BVH's own leaf bounds, which makes
+    # _inside()'s ray cast re-hit the same padded surface it just left,
+    # because the 1e-5 step-off between ray casts is far smaller than any
+    # realistic margin. Confirmed: margin=0.02 alone made a two-separate-cube
+    # scene exhaust the 64-hit cap on every ray cast, permanently and
+    # falsely raising cap_reached. Proximity is _any_near's job alone.
+    t = BVHTree.FromPolygons(verts, polys, all_triangles=False, epsilon=0.0)
 
     probes = []
     if verts:
@@ -342,17 +350,23 @@ def pairwise_intersections(names_or_collection, margin=0.0):
     should treat `clean` and `overlaps` as the facts and `mode` as a hint.
 
     margin's effect is ONLY the "near" path above (BVHTree.find_nearest).
-    It is also passed as BVHTree.FromPolygons' `epsilon`, which the Blender
-    docs describe as widening overlap/raycast detection — in practice,
-    measured directly against a real 0.04 m gap (both a parallel-face pair
-    AND a sharp tip approaching a flat plate, ruling out the parallel-face
-    degenerate case specifically), epsilon has ZERO effect on separated
-    geometry at any magnitude tried up to 5.0 (125x the gap): it only
-    smooths numerical precision for geometry already touching or
-    coincident. So margin does NOT turn a real "crossing" near-miss into a
-    hit — it only ever produces "near". And it never reaches "contained":
-    the parity ray cast has no notion of margin, so two genuinely separate
-    parts are never reported "contained" no matter how large margin is.
+    The BVH itself is ALWAYS built with epsilon=0.0, regardless of margin
+    — never pass margin as BVHTree epsilon. Two reasons, both measured, not
+    assumed: (1) epsilon has ZERO effect on separated geometry at any
+    magnitude tried up to 5.0 against a real 0.04 m gap (both a
+    parallel-face pair and a sharp tip approaching a flat plate, ruling out
+    the parallel-face degenerate case specifically) — it only smooths
+    numerical precision for geometry already touching or coincident, so it
+    buys nothing. (2) it actively BREAKS _inside()'s ray cast: epsilon pads
+    the BVH's leaf bounds, and the 1e-5 step the ray takes off a hit is
+    always far smaller than any realistic margin, so the next cast re-hits
+    the same padded surface — measured on two cubes separated by 40 mm,
+    margin=0.02 alone exhausted the 64-hit cap on every ray cast and left
+    cap_reached permanently, falsely, True. So margin does NOT turn a real
+    "crossing" near-miss into a hit — it only ever produces "near". And it
+    never reaches "contained": the parity ray cast has no notion of margin,
+    so two genuinely separate parts are never reported "contained" no
+    matter how large margin is.
 
     `cap_reached` in the returned dict is True if any ray cast hit the
     64-surface parity cap (see _inside) on any pair. When it is True, do not
