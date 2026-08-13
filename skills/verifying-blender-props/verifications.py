@@ -167,48 +167,144 @@ def animated_clearance(name, profile, f0, f1, step=2, margin=0.0):
             "intersects": worst < 0}
 
 
-def _bvh(name, margin=0.0):
-    """Build a world-space BVH plus a representative interior point.
+def _bvh(name, margin=0.0, max_probes=16):
+    """Build a world-space BVH plus a list of points proven to sit in this
+    part's own material, for _inside()'s parity ray cast.
 
-    The representative point feeds _inside()'s parity ray cast. It CANNOT be
-    an arbitrary vertex: two axis-aligned panels that overlap by pure
-    translation along one axis (a body panel sliding into its neighbour,
-    the single most common interpenetration in a sheet-metal assembly) share
-    identical extents on the other two axes, so every vertex of either part
-    sits exactly on the other part's boundary plane. A ray cast from a point
-    ON a face is a coin flip, not a measurement — measured on this repo's own
-    test cubes, checking vertex[0] missed a confirmed 0.1 m interpenetration
-    100% of the time. The centroid does not have this problem: for a
-    genuinely overlapping pair it lands inside the other solid, not on its
-    skin. It is also why BVH triangle overlap alone is not enough here: two
-    such panels have every crossing face pair either parallel or exactly
-    coplanar, which is the degenerate case general triangle-triangle
-    intersection tests are defined to reject, so overlap() legitimately
-    returns zero pairs for a real 0.1 m interpenetration.
+    A SINGLE probe is not enough, and the centroid is the worst choice for
+    it: a channel section, a tube, a wheel rim or an angled bracket all have
+    their centroid in the EMPTY space the part wraps around, not in its
+    material — a probe there proves nothing about whether the part's steel
+    overlaps a neighbour's. It also fails for a case that looks nothing like
+    a corner case in a vehicle body: two axis-aligned panels that overlap by
+    pure translation along one axis (a body panel sliding into its
+    neighbour) share identical extents on the other two axes, so an
+    arbitrary vertex sits exactly on the other part's boundary plane — a ray
+    cast from a point ON a face is a coin flip, not a measurement. This is
+    also why BVH triangle overlap alone is not enough: every crossing face
+    pair in that configuration is parallel or exactly coplanar, which
+    general triangle-triangle intersection is defined to treat as
+    non-intersecting, so overlap() legitimately returns zero for a real
+    interpenetration.
+
+    The fix used here: sample up to max_probes face centers, spread evenly
+    across the polygon list, each nudged inward along its own normal by a
+    small fraction of the part's bounding diagonal — small enough not to
+    punch through a thin wall to the far side, large enough to clear the
+    surface itself. That lands inside the material AT the surface, which is
+    exactly where a real interpenetration with a neighbour would also be.
+    The centroid is kept as one extra, cheap probe for solid convex parts
+    where it is reliable. pairwise_intersections accepts a pair as
+    overlapping if ANY probe from either side lands inside the other part.
     """
     from mathutils.bvhtree import BVHTree
     ev, m = _evaluated(name)
     mw = ev.matrix_world
+    nmat = mw.inverted_safe().transposed().to_3x3()
     verts = [mw @ v.co for v in m.vertices]
     polys = [list(p.vertices) for p in m.polygons]
     t = BVHTree.FromPolygons(verts, polys, all_triangles=False, epsilon=margin)
+
+    probes = []
+    if verts:
+        xs = [v.x for v in verts]; ys = [v.y for v in verts]; zs = [v.z for v in verts]
+        diag = ((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2
+                + (max(zs) - min(zs)) ** 2) ** 0.5
+        inset = min(max(diag * 1e-3, 1e-5), 1e-3)  # 0.01-1 mm, scaled to part size
+        probes.append(sum(verts, Vector()) / len(verts))  # centroid: cheap, convex-only
+        n_faces = len(m.polygons)
+        if n_faces:
+            stride = max(1, n_faces // max_probes)
+            for i in range(0, n_faces, stride):
+                poly = m.polygons[i]
+                c_world = mw @ poly.center
+                n_world = (nmat @ poly.normal).normalized()
+                probes.append(c_world - n_world * inset)
     ev.to_mesh_clear()
-    centroid = (sum(verts, Vector()) / len(verts)) if verts else None
-    return t, centroid
+    return t, probes
 
 
-def _inside(tree, point, direction=(0.5774, 0.5774, 0.5774)):
-    """Parity ray cast: odd number of hits means the point is enclosed."""
+def _inside(tree, point, direction=(0.5774, 0.5774, 0.5774), max_hits=64):
+    """Parity ray cast from a single point: odd hit count means enclosed.
+
+    Returns (is_inside, hit_cap_reached). A radiator grille or a fin stack
+    can cross more than max_hits surfaces; if the cap is hit the parity is
+    unreliable and the caller MUST NOT read a resulting False as clean —
+    that is exactly the silent-wrong-answer failure mode this return value
+    exists to prevent.
+    """
     if point is None:
-        return False
+        return False, False
     p, d, hits = Vector(point), Vector(direction).normalized(), 0
-    for _ in range(64):
+    for _ in range(max_hits):
         loc, nor, idx, dist = tree.ray_cast(p, d)
         if loc is None:
-            break
+            return hits % 2 == 1, False
         hits += 1
         p = loc + d * 1e-5
-    return hits % 2 == 1
+    return hits % 2 == 1, True
+
+
+def _any_inside(tree, points):
+    """True if ANY probe point lands inside tree. Also reports whether the
+    64-hit ray cast cap was reached on any of them, so the caller can flag
+    the result as unreliable instead of trusting a clean False."""
+    cap_reached = False
+    for pt in points:
+        inside, capped = _inside(tree, pt)
+        cap_reached = cap_reached or capped
+        if inside:
+            return True, cap_reached
+    return False, cap_reached
+
+
+def _any_near(tree, points, margin):
+    """True if any probe point sits within `margin` of tree's surface.
+
+    Uses BVHTree.find_nearest(point, distance=margin), a genuine
+    point-to-surface distance query — NOT BVHTree.FromPolygons' `epsilon`.
+    That distinction is load-bearing: measured directly (two axis-aligned
+    boxes with a real 0.04 m gap, AND a sharp tip approaching a flat plate
+    to rule out the parallel-face degenerate case) epsilon has ZERO effect
+    on separated geometry at any magnitude tried, up to 5.0 — 125x the gap.
+    epsilon only smooths the numerical precision of the intersection test
+    for geometry that is already touching or coincident; it is not a
+    Minkowski-style "expand by epsilon" clearance check. find_nearest is.
+    """
+    if margin <= 0.0:
+        return False
+    for pt in points:
+        loc, nor, idx, dist = tree.find_nearest(pt, margin)
+        if loc is not None:
+            return True
+    return False
+
+
+def _check_pairs(trees, margin=0.0):
+    """Pairwise crossing/containment/proximity check over {name: (bvh, probes)}.
+
+    Shared by pairwise_intersections and animated_intersections so the
+    animated sweep can reuse cached BVHs for parts that do not move instead
+    of rebuilding all of them every frame.
+    """
+    names = list(trees.keys())
+    pairs, cap_reached = [], False
+    for i, a in enumerate(names):
+        ta, pa = trees[a]
+        for b in names[i + 1:]:
+            tb, pb = trees[b]
+            ov = ta.overlap(tb)
+            if ov:
+                pairs.append({"a": a, "b": b, "overlaps": len(ov), "mode": "crossing"})
+                continue
+            inside_ab, cap1 = _any_inside(tb, pa)
+            inside_ba, cap2 = _any_inside(ta, pb)
+            cap_reached = cap_reached or cap1 or cap2
+            if inside_ab or inside_ba:
+                pairs.append({"a": a, "b": b, "overlaps": 0, "mode": "contained"})
+            elif margin > 0.0 and (_any_near(tb, pa, margin) or _any_near(ta, pb, margin)):
+                pairs.append({"a": a, "b": b, "overlaps": 0, "mode": "near"})
+    return pairs, cap_reached
 
 
 def pairwise_intersections(names_or_collection, margin=0.0):
@@ -217,17 +313,50 @@ def pairwise_intersections(names_or_collection, margin=0.0):
     Uncovered by a Corona delivery truck: profile_clearance() measures against a
     SOLID OF REVOLUTION — it takes a (radius, z) profile and computes distance
     to the Z axis. On a vehicle that returns numbers with no meaning, which is
-    worse than not measuring. And with ~60 modules, checking pairs by hand is
-    not viable, so "it looks well assembled" becomes the only evidence — the
-    exact impression this skill exists to replace.
+    worse than not measuring. And with ~60 modules that is ~1,770 pairs at
+    O(n^2) — checking by hand is not viable, so "it looks well assembled"
+    becomes the only evidence, the exact impression this skill exists to
+    replace. Same rule as render_cost: measure the time on a representative
+    subset before running this on the full assembly, do not find out from a
+    frozen session.
 
-    Two failure modes are detected, and the second is the one the eye never
-    catches: surfaces that CROSS (BVH overlap), and a part fully CONTAINED
-    inside another with no surface crossing at all — a bolt swallowed by the
-    panel it should sit on renders identically to a bolt that is missing.
+    Three outcomes are detected, checked in this order, first match wins:
 
-    margin expands every BVH by that amount in metres, so a positive margin
-    turns the check into "these parts must not even come within margin".
+    - "crossing": BVHTree.overlap found triangles that actually cross.
+    - "contained": no triangle crossing, but a parity ray cast from one
+      part's probe points (see _bvh) proves it sits inside the other's
+      material. This is the ONLY way to catch a bolt fully swallowed by the
+      panel it should sit on — it renders identically to a bolt that is
+      missing — and it is also what catches the far more common case of two
+      axis-aligned panels overlapping by pure translation along one axis,
+      where every crossing face pair is parallel or coplanar and
+      BVHTree.overlap legitimately returns zero for a real interpenetration.
+    - "near": only checked when margin > 0 and neither of the above fired.
+      A probe point of one part sits within `margin` of the other's surface,
+      via BVHTree.find_nearest — a real point-to-surface distance query.
+
+    CAVEAT on `mode`: it names which code path found the pair, not the true
+    topology. A "crossing"-shaped overlap that degenerates to zero BVH
+    triangle hits (the parallel/coplanar case above) is still reported as
+    "contained", because that is the path that caught it. Downstream code
+    should treat `clean` and `overlaps` as the facts and `mode` as a hint.
+
+    margin's effect is ONLY the "near" path above (BVHTree.find_nearest).
+    It is also passed as BVHTree.FromPolygons' `epsilon`, which the Blender
+    docs describe as widening overlap/raycast detection — in practice,
+    measured directly against a real 0.04 m gap (both a parallel-face pair
+    AND a sharp tip approaching a flat plate, ruling out the parallel-face
+    degenerate case specifically), epsilon has ZERO effect on separated
+    geometry at any magnitude tried up to 5.0 (125x the gap): it only
+    smooths numerical precision for geometry already touching or
+    coincident. So margin does NOT turn a real "crossing" near-miss into a
+    hit — it only ever produces "near". And it never reaches "contained":
+    the parity ray cast has no notion of margin, so two genuinely separate
+    parts are never reported "contained" no matter how large margin is.
+
+    `cap_reached` in the returned dict is True if any ray cast hit the
+    64-surface parity cap (see _inside) on any pair. When it is True, do not
+    trust a `clean == True` result blindly — re-check the flagged geometry.
     """
     if isinstance(names_or_collection, str):
         names = [o.name for o in
@@ -236,44 +365,43 @@ def pairwise_intersections(names_or_collection, margin=0.0):
     else:
         names = list(names_or_collection)
 
-    trees = {}
-    for n in names:
-        trees[n] = _bvh(n, margin)
-
-    pairs = []
-    for i, a in enumerate(names):
-        ta, pa = trees[a]
-        for b in names[i + 1:]:
-            tb, pb = trees[b]
-            ov = ta.overlap(tb)
-            if ov:
-                pairs.append({"a": a, "b": b, "overlaps": len(ov), "modo": "cruce"})
-            elif _inside(tb, pa) or _inside(ta, pb):
-                pairs.append({"a": a, "b": b, "overlaps": 0, "modo": "contenido"})
-
-    return {"pairs": pairs, "count": len(pairs), "clean": not pairs}
+    trees = {n: _bvh(n, margin) for n in names}
+    pairs, cap_reached = _check_pairs(trees, margin)
+    return {"pairs": pairs, "count": len(pairs), "clean": not pairs,
+            "cap_reached": cap_reached}
 
 
 def animated_intersections(moving, others, f0, f1, step=2, margin=0.0):
     """pairwise_intersections swept across an animation range.
 
     A door clears at rest and eats the B pillar halfway through its travel.
-    Checking only the rest pose is checking the one frame that cannot fail."""
+    Checking only the rest pose is checking the one frame that cannot fail.
+
+    `others` are assumed static for the sweep: their BVH+probes are built
+    ONCE, before the frame loop, and reused every frame. Only `moving` is
+    rebuilt per frame. See pairwise_intersections for what `mode`, `margin`
+    and `cap_reached` mean — unchanged here, just accumulated across frames.
+    """
     sc = bpy.context.scene
     saved = sc.frame_current
-    bad, worst_f = [], None
+    static_trees = {n: _bvh(n, margin) for n in others}
+    bad, worst_f, cap_reached = [], None, False
     for f in range(f0, f1 + 1, step):
         sc.frame_set(f)
         bpy.context.view_layer.update()
-        r = pairwise_intersections([moving] + list(others), margin)
-        for p in r["pairs"]:
+        trees = dict(static_trees)
+        trees[moving] = _bvh(moving, margin)
+        pairs, cap = _check_pairs(trees, margin)
+        cap_reached = cap_reached or cap
+        for p in pairs:
             if moving in (p["a"], p["b"]):
                 bad.append(dict(p, frame=f))
                 if worst_f is None:
                     worst_f = f
     sc.frame_set(saved)
     bpy.context.view_layer.update()
-    return {"pairs": bad, "worst_frame": worst_f, "clean": not bad}
+    return {"pairs": bad, "worst_frame": worst_f, "clean": not bad,
+            "cap_reached": cap_reached}
 
 
 # ─────────────────────────────────────────────────────────── UV

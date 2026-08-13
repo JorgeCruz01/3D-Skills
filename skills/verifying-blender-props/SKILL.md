@@ -43,14 +43,14 @@ Use `verifications.py` (next to this file). Every function returns a dict.
 | High poly | `degenerate_faces(part)` | nothing above 100:1 aspect ratio |
 | Machined detail | `axis_clearance(...)` | **positive**: a hole must still be a hole after modifiers |
 | Assembly | `axis_clearance` / `profile_clearance` | positive between every pair of parts that touch |
-| Assembly | `pairwise_intersections(collection)` | `clean == True` — bulk, catches crossings AND full containment |
+| Assembly | `pairwise_intersections(collection)` | `clean == True` — bulk, catches crossing, full containment, and (with `margin>0`) near-misses as `mode: "near"`. `mode` is a hint, not a classification: treat `clean`/`overlaps` as the facts. Time it on a subset before the full assembly |
 | Machined parts | `shading(part)` | `sharp_edges > 0` if the part has hard edges |
 | Retopo | `silhouette_hp_vs_lp(...)` | `differing_px_pct < 1` |
 | UV | `uv_overlap(set)` | `overlapping_cells == 0`, `degenerate_uv_faces ≈ 0` |
 | UV | `uv_density(set)` | `deviation_pct < 1` within each set |
 | Bake | compare LP+normal render against HP | mean difference `< 2/255` |
 | Animation | `animated_clearance(...)` | positive across the **whole** range, not just at rest |
-| Animation | `animated_intersections(moving, others, f0, f1)` | `clean == True` across the whole range |
+| Animation | `animated_intersections(moving, others, f0, f1)` | `clean == True` across the whole range. `cap_reached == True` means at least one ray cast hit the 64-surface parity cap — do not trust a clean result on that pair |
 | Animation | `framing_check(...)` | `all_inside == True` |
 | Turntable | `turntable_loop(cam, 1, N+1)` | error `< 1e-6` and uniform step |
 | Backdrop | `backdrop_coverage(...)` | `frames_with_world_AT_EDGES == none` |
@@ -67,7 +67,18 @@ These have no visual equivalent. If you do not run them, you do not know.
    `profile_clearance` only works for a **solid of revolution** — it takes a
    `(radius, z)` profile and measures distance to the Z axis. In a sheet-metal
    assembly (a vehicle body, a frame of ~60 modules) that returns numbers with
-   no meaning; use `pairwise_intersections` instead.
+   no meaning; use `pairwise_intersections` instead. Its `margin` produces a
+   third `mode`, `"near"`, via a real point-to-surface distance query
+   (`BVHTree.find_nearest`) — **not** `BVHTree`'s own `epsilon` parameter,
+   which was measured to have zero effect on separated geometry at any
+   size, only on geometry already touching. `margin` never reaches the
+   containment check either: a fully separate pair is never reported
+   "contained" no matter how large `margin` is. And the containment check
+   itself uses **several probe points**
+   (face centers nudged inward, plus the centroid), not the centroid alone:
+   a channel section, a tube, a rim or an angled bracket has its centroid in
+   the empty space it wraps around, not in its material, so a single-probe
+   check misses exactly the non-convex parts a chassis is made of.
 
 2. **UV overlap.** A closed ring is topologically a torus and needs **two** cuts
    to unwrap. With only one, the unwrap collapses: zero-area faces and stacked
@@ -105,6 +116,8 @@ These have no visual equivalent. If you do not run them, you do not know.
 
 - You are about to bake without having measured the geometry
 - You are about to launch more than 10 frames without having timed one
+- You are about to run `pairwise_intersections` on the full assembly
+  (~60 modules is ~1,770 pairs) without having timed it on a subset first
 - You are describing a defect with adjectives ("weird", "dirty", "off")
 - You changed geometry after unwrapping or after baking
 - Your only evidence that something works is a render you looked at
