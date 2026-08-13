@@ -5,9 +5,13 @@ Claude Code plugin marketplace with skills for 3D prop production.
 ## Install
 
 ```
-/plugin marketplace add JorgeCruz01/jorge-3d-skills
+/plugin marketplace add JorgeCruz01/3D-Skills
 /plugin install blender-props@jorge-3d-skills
 ```
+
+The repo is `3D-Skills`; the marketplace it declares is named `jorge-3d-skills`.
+The two do not have to match — you add it by repo path and install from it by
+marketplace name.
 
 To pull later updates:
 
