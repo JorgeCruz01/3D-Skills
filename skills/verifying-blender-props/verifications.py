@@ -167,6 +167,115 @@ def animated_clearance(name, profile, f0, f1, step=2, margin=0.0):
             "intersects": worst < 0}
 
 
+def _bvh(name, margin=0.0):
+    """Build a world-space BVH plus a representative interior point.
+
+    The representative point feeds _inside()'s parity ray cast. It CANNOT be
+    an arbitrary vertex: two axis-aligned panels that overlap by pure
+    translation along one axis (a body panel sliding into its neighbour,
+    the single most common interpenetration in a sheet-metal assembly) share
+    identical extents on the other two axes, so every vertex of either part
+    sits exactly on the other part's boundary plane. A ray cast from a point
+    ON a face is a coin flip, not a measurement — measured on this repo's own
+    test cubes, checking vertex[0] missed a confirmed 0.1 m interpenetration
+    100% of the time. The centroid does not have this problem: for a
+    genuinely overlapping pair it lands inside the other solid, not on its
+    skin. It is also why BVH triangle overlap alone is not enough here: two
+    such panels have every crossing face pair either parallel or exactly
+    coplanar, which is the degenerate case general triangle-triangle
+    intersection tests are defined to reject, so overlap() legitimately
+    returns zero pairs for a real 0.1 m interpenetration.
+    """
+    from mathutils.bvhtree import BVHTree
+    ev, m = _evaluated(name)
+    mw = ev.matrix_world
+    verts = [mw @ v.co for v in m.vertices]
+    polys = [list(p.vertices) for p in m.polygons]
+    t = BVHTree.FromPolygons(verts, polys, all_triangles=False, epsilon=margin)
+    ev.to_mesh_clear()
+    centroid = (sum(verts, Vector()) / len(verts)) if verts else None
+    return t, centroid
+
+
+def _inside(tree, point, direction=(0.5774, 0.5774, 0.5774)):
+    """Parity ray cast: odd number of hits means the point is enclosed."""
+    if point is None:
+        return False
+    p, d, hits = Vector(point), Vector(direction).normalized(), 0
+    for _ in range(64):
+        loc, nor, idx, dist = tree.ray_cast(p, d)
+        if loc is None:
+            break
+        hits += 1
+        p = loc + d * 1e-5
+    return hits % 2 == 1
+
+
+def pairwise_intersections(names_or_collection, margin=0.0):
+    """Bulk interpenetration check between sibling parts of an assembly.
+
+    Uncovered by a Corona delivery truck: profile_clearance() measures against a
+    SOLID OF REVOLUTION — it takes a (radius, z) profile and computes distance
+    to the Z axis. On a vehicle that returns numbers with no meaning, which is
+    worse than not measuring. And with ~60 modules, checking pairs by hand is
+    not viable, so "it looks well assembled" becomes the only evidence — the
+    exact impression this skill exists to replace.
+
+    Two failure modes are detected, and the second is the one the eye never
+    catches: surfaces that CROSS (BVH overlap), and a part fully CONTAINED
+    inside another with no surface crossing at all — a bolt swallowed by the
+    panel it should sit on renders identically to a bolt that is missing.
+
+    margin expands every BVH by that amount in metres, so a positive margin
+    turns the check into "these parts must not even come within margin".
+    """
+    if isinstance(names_or_collection, str):
+        names = [o.name for o in
+                 bpy.data.collections[names_or_collection].all_objects
+                 if o.type == 'MESH']
+    else:
+        names = list(names_or_collection)
+
+    trees = {}
+    for n in names:
+        trees[n] = _bvh(n, margin)
+
+    pairs = []
+    for i, a in enumerate(names):
+        ta, pa = trees[a]
+        for b in names[i + 1:]:
+            tb, pb = trees[b]
+            ov = ta.overlap(tb)
+            if ov:
+                pairs.append({"a": a, "b": b, "overlaps": len(ov), "modo": "cruce"})
+            elif _inside(tb, pa) or _inside(ta, pb):
+                pairs.append({"a": a, "b": b, "overlaps": 0, "modo": "contenido"})
+
+    return {"pairs": pairs, "count": len(pairs), "clean": not pairs}
+
+
+def animated_intersections(moving, others, f0, f1, step=2, margin=0.0):
+    """pairwise_intersections swept across an animation range.
+
+    A door clears at rest and eats the B pillar halfway through its travel.
+    Checking only the rest pose is checking the one frame that cannot fail."""
+    sc = bpy.context.scene
+    saved = sc.frame_current
+    bad, worst_f = [], None
+    for f in range(f0, f1 + 1, step):
+        sc.frame_set(f)
+        bpy.context.view_layer.update()
+        r = pairwise_intersections([moving] + list(others), margin)
+        for p in r["pairs"]:
+            if moving in (p["a"], p["b"]):
+                bad.append(dict(p, frame=f))
+                if worst_f is None:
+                    worst_f = f
+    sc.frame_set(saved)
+    bpy.context.view_layer.update()
+    return {"pairs": bad, "worst_frame": worst_f, "clean": not bad}
+
+
 # ─────────────────────────────────────────────────────────── UV
 
 def uv_density(names, texture_res=4096):

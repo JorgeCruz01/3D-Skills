@@ -43,12 +43,14 @@ Use `verifications.py` (next to this file). Every function returns a dict.
 | High poly | `degenerate_faces(part)` | nothing above 100:1 aspect ratio |
 | Machined detail | `axis_clearance(...)` | **positive**: a hole must still be a hole after modifiers |
 | Assembly | `axis_clearance` / `profile_clearance` | positive between every pair of parts that touch |
+| Assembly | `pairwise_intersections(collection)` | `clean == True` — bulk, catches crossings AND full containment |
 | Machined parts | `shading(part)` | `sharp_edges > 0` if the part has hard edges |
 | Retopo | `silhouette_hp_vs_lp(...)` | `differing_px_pct < 1` |
 | UV | `uv_overlap(set)` | `overlapping_cells == 0`, `degenerate_uv_faces ≈ 0` |
 | UV | `uv_density(set)` | `deviation_pct < 1` within each set |
 | Bake | compare LP+normal render against HP | mean difference `< 2/255` |
 | Animation | `animated_clearance(...)` | positive across the **whole** range, not just at rest |
+| Animation | `animated_intersections(moving, others, f0, f1)` | `clean == True` across the whole range |
 | Animation | `framing_check(...)` | `all_inside == True` |
 | Turntable | `turntable_loop(cam, 1, N+1)` | error `< 1e-6` and uniform step |
 | Backdrop | `backdrop_coverage(...)` | `frames_with_world_AT_EDGES == none` |
@@ -62,6 +64,10 @@ These have no visual equivalent. If you do not run them, you do not know.
    fitting and look perfect from every angle. Always measure on the **high
    poly**: the low poly tessellates coarser and misses the worst sample, so it
    can report positive clearance while the high poly intersects.
+   `profile_clearance` only works for a **solid of revolution** — it takes a
+   `(radius, z)` profile and measures distance to the Z axis. In a sheet-metal
+   assembly (a vehicle body, a frame of ~60 modules) that returns numbers with
+   no meaning; use `pairwise_intersections` instead.
 
 2. **UV overlap.** A closed ring is topologically a torus and needs **two** cuts
    to unwrap. With only one, the unwrap collapses: zero-area faces and stacked
