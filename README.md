@@ -1,4 +1,4 @@
-# jorge-3d-skills
+# 3D-Skills
 
 Claude Code plugin marketplace with skills for 3D prop production.
 
