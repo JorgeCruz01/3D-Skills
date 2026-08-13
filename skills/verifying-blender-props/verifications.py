@@ -1,0 +1,432 @@
+# -*- coding: utf-8 -*-
+"""
+Verifications for a Blender prop pipeline.
+
+Every function returns NUMBERS, not impressions. All of them have been used in
+production, and each one caught at least one defect that visual inspection did
+not see.
+
+Usage: paste into execute_blender_code, or store as a text datablock in the .blend.
+
+    from verifications import *
+    print(manifold("Cuerpo"))
+    print(axis_clearance("Pin", "Valvula", axis=(1,0,0), point=(0,-0.008,0.4826), radius=0.00225))
+"""
+
+import bpy, bmesh, math, os
+from mathutils import Vector
+
+
+# ─────────────────────────────────────────────────────────── mesh
+
+def _evaluated(name):
+    dg = bpy.context.evaluated_depsgraph_get(); dg.update()
+    o = bpy.data.objects[name]
+    ev = o.evaluated_get(dg)
+    return ev, ev.to_mesh()
+
+
+def manifold(name):
+    """Boundary and non-manifold edges on the EVALUATED mesh (with modifiers).
+
+    Checking the base mesh lies: modifiers can open or close the mesh. A curve
+    with a bevel and use_fill_caps can still have its ends wide open."""
+    ev, m = _evaluated(name)
+    bm = bmesh.new(); bm.from_mesh(m)
+    r = {"faces": len(bm.faces),
+         "tris": sum(len(f.verts) - 2 for f in bm.faces),
+         "boundary": sum(1 for e in bm.edges if e.is_boundary),
+         "nonmanifold": sum(1 for e in bm.edges if not e.is_manifold),
+         "ngons": sum(1 for f in bm.faces if len(f.verts) > 4),
+         "triangles": sum(1 for f in bm.faces if len(f.verts) == 3),
+         "scale": [round(v, 6) for v in bpy.data.objects[name].scale]}
+    bm.free(); ev.to_mesh_clear()
+    return r
+
+
+def dimensions(name, expected_mm=None, tolerance_mm=2.0):
+    """Bounding dimensions of the EVALUATED mesh, in mm.
+
+    The Catmull-Clark limit surface does NOT match the base mesh: a ring of N
+    sides converges to R*(2+cos(2pi/N))/3. Measuring the base mesh gives you a
+    dimension the render does not have."""
+    ev, m = _evaluated(name)
+    co = [ev.matrix_world @ v.co for v in m.vertices]
+    d = [round((max(c[i] for c in co) - min(c[i] for c in co)) * 1000, 3)
+         for i in range(3)]
+    ev.to_mesh_clear()
+    r = {"L_mm": d[0], "W_mm": d[1], "H_mm": d[2]}
+    if expected_mm:
+        dev = [round(a - b, 3) for a, b in zip(d, expected_mm)]
+        r["deviation_mm"] = dev
+        r["within_tolerance"] = all(abs(x) <= tolerance_mm for x in dev)
+    return r
+
+
+def degenerate_faces(name, aspect_threshold=8.0):
+    """Faces with an extreme aspect ratio. They are the cause of the dirty
+    shading around holes cut by a boolean into an already subdivided mesh.
+
+    If ratios above 100:1 show up, the topology is broken even though the
+    manifold count comes back perfect."""
+    ev, m = _evaluated(name)
+    bm = bmesh.new(); bm.from_mesh(m)
+    ratios = []
+    for f in bm.faces:
+        ls = [e.calc_length() for e in f.edges]
+        if min(ls) > 1e-9:
+            ratios.append(max(ls) / min(ls))
+    bm.free(); ev.to_mesh_clear()
+    if not ratios:
+        return {"faces": 0}
+    return {"faces": len(ratios),
+            "max": round(max(ratios), 1),
+            "over_threshold": sum(1 for a in ratios if a > aspect_threshold),
+            "over_20": sum(1 for a in ratios if a > 20),
+            "over_100": sum(1 for a in ratios if a > 100)}
+
+
+def shading(name):
+    """Sharp edges and flat faces. A machined part with 0 sharp edges averages
+    its normals across every hard corner: drilled holes read as craters and
+    chamfers smear away."""
+    me = bpy.data.objects[name].data
+    at = me.attributes.get("sharp_edge")
+    return {"sharp_edges": sum(1 for d in at.data if d.value) if at else 0,
+            "edges": len(me.edges),
+            "flat_faces": sum(1 for p in me.polygons if not p.use_smooth),
+            "faces": len(me.polygons)}
+
+
+# ─────────────────────────────────────────────────────────── clearances
+
+def axis_clearance(moving, fixed, axis, point, radius, length=None):
+    """Clearance of a cylindrical part inside a hole or fitting.
+
+    Returns NEGATIVE if the part passes through material. Catches the case the
+    viewport cannot show: a tube poking through the wall of its fitting because
+    the curve flexes right after it exits.
+
+    NOTE: the low poly can report positive clearance while the high poly is
+    negative, because it tessellates coarser and misses the worst sample.
+    ALWAYS measure the high poly."""
+    axis = Vector(axis).normalized(); point = Vector(point)
+    ev, m = _evaluated(fixed)
+    worst, where = 1e9, None
+    for v in m.vertices:
+        w = ev.matrix_world @ v.co
+        d = (w - point).dot(axis)
+        if length is not None and not (0.0 <= d <= length):
+            continue
+        perp = ((w - point) - axis * d).length
+        if perp < worst:
+            worst, where = perp, [round(c * 1000, 2) for c in w]
+    ev.to_mesh_clear()
+    return {"min_radius_mm": round(worst * 1000, 3),
+            "clearance_mm": round((worst - radius) * 1000, 3),
+            "vertex": where,
+            "intersects": worst < radius}
+
+
+def profile_clearance(name, profile, margin=0.0):
+    """Clearance of a part against a solid of revolution, given its profile as
+    (radius, z) pairs. For hoses, cables and clips against a body."""
+    def radius(z):
+        if z <= profile[0][1] or z >= profile[-1][1]:
+            return 0.0
+        for (r1, z1), (r2, z2) in zip(profile, profile[1:]):
+            if z1 <= z <= z2:
+                t = (z - z1) / (z2 - z1) if z2 != z1 else 0.0
+                return r1 + (r2 - r1) * t
+        return 0.0
+    ev, m = _evaluated(name)
+    worst, where = 1e9, None
+    for v in m.vertices:
+        w = ev.matrix_world @ v.co
+        d = (w.x ** 2 + w.y ** 2) ** 0.5 - radius(w.z) - margin
+        if d < worst:
+            worst, where = d, [round(c * 1000, 1) for c in w]
+    ev.to_mesh_clear()
+    return {"clearance_mm": round(worst * 1000, 2), "vertex": where,
+            "intersects": worst < 0}
+
+
+def animated_clearance(name, profile, f0, f1, step=2, margin=0.0):
+    """Same as profile_clearance but sweeping the animation range.
+    A part can clear at rest and intersect halfway through its travel."""
+    sc = bpy.context.scene
+    saved = sc.frame_current
+    worst, worst_f = 1e9, None
+    for f in range(f0, f1 + 1, step):
+        sc.frame_set(f); bpy.context.view_layer.update()
+        r = profile_clearance(name, profile, margin)
+        if r["clearance_mm"] / 1000 < worst:
+            worst, worst_f = r["clearance_mm"] / 1000, f
+    sc.frame_set(saved)
+    return {"min_clearance_mm": round(worst * 1000, 2), "frame": worst_f,
+            "intersects": worst < 0}
+
+
+# ─────────────────────────────────────────────────────────── UV
+
+def uv_density(names, texture_res=4096):
+    """Texel density per part. The deviation between parts sharing a set should
+    be ~0: if one part has twice the density, the atlas is badly scaled and it
+    will show in the render."""
+    out, a3t, a2t = {}, 0.0, 0.0
+    for n in names:
+        bm = bmesh.new(); bm.from_mesh(bpy.data.objects[n].data)
+        uv = bm.loops.layers.uv.active
+        if uv is None:
+            out[n] = "NO UV"; bm.free(); continue
+        a3 = sum(f.calc_area() for f in bm.faces); a2 = 0.0
+        for f in bm.faces:
+            ls = [l[uv].uv for l in f.loops]
+            for i in range(1, len(ls) - 1):
+                a2 += abs((ls[i].x - ls[0].x) * (ls[i + 1].y - ls[0].y) -
+                          (ls[i + 1].x - ls[0].x) * (ls[i].y - ls[0].y)) / 2
+        bm.free(); a3t += a3; a2t += a2
+        out[n] = round(math.sqrt(a2 / a3) * texture_res / 1000, 3) if a3 else 0
+    v = [x for x in out.values() if isinstance(x, float)]
+    return {"px_per_mm": out,
+            "mean": round(math.sqrt(a2t / a3t) * texture_res / 1000, 3) if a3t else 0,
+            "deviation_pct": round(100 * (max(v) - min(v)) / max(v), 3) if v else None}
+
+
+def uv_overlap(names, grid=1024):
+    """Rasterizes the UV islands and counts cells covered more than once.
+
+    A torus (closed ring) needs TWO cuts to unwrap. With only one, the unwrap
+    collapses: zero-area UV faces and up to 10 stacked layers, with no other
+    check giving it away."""
+    import numpy as np
+    count = np.zeros((grid, grid), dtype=np.int16); deg = 0
+    for name in names:
+        bm = bmesh.new(); bm.from_mesh(bpy.data.objects[name].data)
+        uv = bm.loops.layers.uv.active
+        if uv is None:
+            bm.free(); continue
+        for f in bm.faces:
+            ls = [l[uv].uv for l in f.loops]
+            au = sum(abs((ls[i].x - ls[0].x) * (ls[i + 1].y - ls[0].y) -
+                         (ls[i + 1].x - ls[0].x) * (ls[i].y - ls[0].y)) / 2
+                     for i in range(1, len(ls) - 1))
+            if au < 1e-9:
+                deg += 1
+            for i in range(1, len(ls) - 1):
+                tri = np.array([[ls[0].x, ls[0].y], [ls[i].x, ls[i].y],
+                                [ls[i + 1].x, ls[i + 1].y]]) * grid
+                x0 = max(int(np.floor(tri[:, 0].min())), 0)
+                x1 = min(int(np.ceil(tri[:, 0].max())) + 1, grid)
+                y0 = max(int(np.floor(tri[:, 1].min())), 0)
+                y1 = min(int(np.ceil(tri[:, 1].max())) + 1, grid)
+                if x1 <= x0 or y1 <= y0:
+                    continue
+                xs, ys = np.meshgrid(np.arange(x0, x1) + .5, np.arange(y0, y1) + .5)
+                a, b, c = tri
+                d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
+                if abs(d) < 1e-12:
+                    continue
+                w0 = ((b[1] - c[1]) * (xs - c[0]) + (c[0] - b[0]) * (ys - c[1])) / d
+                w1 = ((c[1] - a[1]) * (xs - c[0]) + (a[0] - c[0]) * (ys - c[1])) / d
+                count[y0:y1, x0:x1] += ((w0 >= 0) & (w1 >= 0) &
+                                        ((1 - w0 - w1) >= 0)).astype(np.int16)
+        bm.free()
+    covered = int((count >= 1).sum())
+    return {"coverage_pct": round(100 * covered / grid ** 2, 2),
+            "overlapping_cells": int((count >= 2).sum()),
+            "max_layers": int(count.max()),
+            "degenerate_uv_faces": deg}
+
+
+# ─────────────────────────────────────────────────────────── render
+
+def silhouette_hp_vs_lp(col_hp, col_lp, camera, res=(1400, 1800), samples=16,
+                        hide=()):
+    """Renders both collections with a transparent background and compares the
+    alpha channel. It is the only honest measure of whether the low poly holds
+    the silhouette.
+
+    NOTE: the backdrop must be hidden, or alpha comes back opaque across the
+    whole frame and the comparison reports 0% difference for the wrong reason."""
+    import numpy as np
+    from PIL import Image
+    sc = bpy.context.scene; r = sc.render
+    vl = bpy.context.view_layer
+    tmp = bpy.app.tempdir
+    prev = dict(x=r.resolution_x, y=r.resolution_y, s=sc.cycles.samples, p=r.filepath,
+                cam=sc.camera, tr=r.film_transparent, w=sc.world,
+                fmt=r.image_settings.file_format, cm=r.image_settings.color_mode)
+    hidden = {n: bpy.data.objects[n].hide_render for n in hide}
+    def excl(name, val):
+        for c in vl.layer_collection.children:
+            if c.name == name:
+                c.hide_viewport = False; c.exclude = val
+    try:
+        for n in hide:
+            bpy.data.objects[n].hide_render = True
+        sc.world = None
+        r.resolution_x, r.resolution_y = res
+        sc.cycles.samples = samples
+        r.film_transparent = True
+        r.image_settings.file_format = 'PNG'
+        r.image_settings.color_mode = 'RGBA'
+        sc.camera = bpy.data.objects[camera]
+        outputs = {}
+        for label, active, other in (("hp", col_hp, col_lp), ("lp", col_lp, col_hp)):
+            excl(other, True); excl(active, False)
+            r.filepath = os.path.join(tmp, "sil_%s.png" % label)
+            bpy.ops.render.render(write_still=True)
+            outputs[label] = r.filepath
+        excl(col_hp, False); excl(col_lp, False)
+    finally:
+        for n, v in hidden.items():
+            bpy.data.objects[n].hide_render = v
+        r.resolution_x, r.resolution_y = prev["x"], prev["y"]
+        sc.cycles.samples = prev["s"]; r.filepath = prev["p"]
+        sc.camera = prev["cam"]; r.film_transparent = prev["tr"]; sc.world = prev["w"]
+        r.image_settings.file_format = prev["fmt"]; r.image_settings.color_mode = prev["cm"]
+    a = np.array(Image.open(outputs["hp"]).convert("RGBA"))[:, :, 3].astype(np.int16)
+    b = np.array(Image.open(outputs["lp"]).convert("RGBA"))[:, :, 3].astype(np.int16)
+    ca, cb = int((a > 128).sum()), int((b > 128).sum())
+    diff = int((np.abs(a - b) > 128).sum())
+    return {"hp_coverage_px": ca, "lp_coverage_px": cb,
+            "area_delta_pct": round(100 * (cb - ca) / max(ca, 1), 3),
+            "differing_px_pct": round(100 * diff / max(ca, 1), 3)}
+
+
+def backdrop_coverage(camera, f0, f1, step=5, res=(480, 270), samples=12):
+    """Sets the world to MAGENTA and counts how much of it shows in each frame.
+
+    Magenta at the EDGES of the frame means the backdrop does not cover and must
+    be closed. Magenta only in the centre over the object is reflection or
+    transmission, which is correct. The distinction matters: looking at the
+    image is not enough, because the rim of a backlit cyclorama looks exactly
+    like a hole and is not one."""
+    import numpy as np
+    from PIL import Image
+    sc = bpy.context.scene; r = sc.render
+    tmp = bpy.app.tempdir
+    w = bpy.data.worlds.get("_MAGENTA") or bpy.data.worlds.new("_MAGENTA")
+    w.use_nodes = True
+    nt = w.node_tree
+    for n in list(nt.nodes):
+        nt.nodes.remove(n)
+    o_ = nt.nodes.new("ShaderNodeOutputWorld")
+    bg = nt.nodes.new("ShaderNodeBackground")
+    bg.inputs["Color"].default_value = (1, 0, 1, 1)
+    nt.links.new(bg.outputs["Background"], o_.inputs["Surface"])
+    prev = dict(x=r.resolution_x, y=r.resolution_y, s=sc.cycles.samples,
+                p=r.filepath, cam=sc.camera, w=sc.world, f=sc.frame_current)
+    worst, edges, detail = (0.0, None), [], []
+    try:
+        sc.world = w; sc.camera = bpy.data.objects[camera]
+        r.resolution_x, r.resolution_y = res
+        sc.cycles.samples = samples
+        for f in range(f0, f1 + 1, step):
+            sc.frame_set(f)
+            r.filepath = os.path.join(tmp, "cov_%04d.png" % f)
+            bpy.ops.render.render(write_still=True)
+            a = np.array(Image.open(r.filepath).convert("RGB")).astype(np.int16)
+            m = (a[:, :, 0] > 150) & (a[:, :, 1] < 90) & (a[:, :, 2] > 150)
+            pct = 100 * m.sum() / m.size
+            if pct > worst[0]:
+                worst = (pct, f)
+            if m.sum():
+                ys, xs = np.where(m)
+                h, wd = m.shape
+                edge = int(((ys < h * .12) | (ys > h * .88) |
+                            (xs < wd * .12) | (xs > wd * .88)).sum())
+                if edge:
+                    edges.append((f, edge))
+                detail.append((f, round(pct, 4)))
+    finally:
+        sc.world = prev["w"]; sc.camera = prev["cam"]
+        r.resolution_x, r.resolution_y = prev["x"], prev["y"]
+        sc.cycles.samples = prev["s"]; r.filepath = prev["p"]
+        sc.frame_set(prev["f"])
+    return {"worst_pct": round(worst[0], 4), "worst_frame": worst[1],
+            "frames_with_world": len(detail),
+            "frames_with_world_AT_EDGES": edges or "none",
+            "verdict": "BACKDROP INSUFFICIENT" if edges else "backdrop covers"}
+
+
+def framing_check(camera, collection, f0, f1, step=3, margin=0.02):
+    """Projects every vertex and checks that nothing leaves the frame across the
+    whole range. A part that unfolds may only leave frame for 10 frames."""
+    from bpy_extras.object_utils import world_to_camera_view
+    sc = bpy.context.scene
+    cam = bpy.data.objects[camera]
+    saved = sc.frame_current
+    ext = {"u_min": 1e9, "v_min": 1e9, "u_max": -1e9, "v_max": -1e9}
+    fr = {}
+    for f in range(f0, f1 + 1, step):
+        sc.frame_set(f); bpy.context.view_layer.update()
+        dg = bpy.context.evaluated_depsgraph_get(); dg.update()
+        for o in bpy.data.collections[collection].objects:
+            if o.type not in {'MESH', 'CURVE'}:
+                continue
+            ev = o.evaluated_get(dg); m = ev.to_mesh()
+            for v in m.vertices:
+                c = world_to_camera_view(sc, cam, ev.matrix_world @ v.co)
+                for k, val in (("u_min", c.x), ("v_min", c.y)):
+                    if val < ext[k]:
+                        ext[k], fr[k] = val, f
+                for k, val in (("u_max", c.x), ("v_max", c.y)):
+                    if val > ext[k]:
+                        ext[k], fr[k] = val, f
+            ev.to_mesh_clear()
+    sc.frame_set(saved)
+    inside = (ext["u_min"] >= margin and ext["v_min"] >= margin
+              and ext["u_max"] <= 1 - margin and ext["v_max"] <= 1 - margin)
+    return {"extremes": {k: round(v, 4) for k, v in ext.items()},
+            "frames": fr, "all_inside": inside}
+
+
+def turntable_loop(camera, f_start, f_wrap):
+    """A turntable of N frames goes from 0 degrees at frame 1 to 360 at frame
+    N+1, NOT at N. If frame N matches frame 1, the loop repeats a pose."""
+    sc = bpy.context.scene
+    cam = bpy.data.objects[camera]
+    saved = sc.frame_current
+    def pose(f):
+        sc.frame_set(f); bpy.context.view_layer.update()
+        return cam.matrix_world.copy()
+    m0, m1 = pose(f_start), pose(f_wrap)
+    steps = []
+    for f in range(f_start, f_wrap):
+        steps.append((pose(f + 1).translation - pose(f).translation).length)
+    sc.frame_set(saved)
+    err = max(abs(a - b) for ra, rb in zip(m0, m1) for a, b in zip(ra, rb))
+    return {"loop_error": round(err, 9),
+            "min_step_mm": round(min(steps) * 1000, 3),
+            "max_step_mm": round(max(steps) * 1000, 3),
+            "uniform": (max(steps) - min(steps)) < 1e-5}
+
+
+def render_cost(camera, frames=(1,), res=(1920, 1080), samples=256):
+    """Measures seconds per frame BEFORE committing to a batch.
+    Run it with compute_device_type set to CUDA and to OPTIX and compare: a GPU
+    without RT cores adds raw throughput under CUDA but drags under OptiX."""
+    import time
+    sc = bpy.context.scene; r = sc.render
+    prev = dict(x=r.resolution_x, y=r.resolution_y, s=sc.cycles.samples,
+                p=r.filepath, cam=sc.camera, f=sc.frame_current)
+    try:
+        sc.camera = bpy.data.objects[camera]
+        r.resolution_x, r.resolution_y = res
+        sc.cycles.samples = samples
+        r.filepath = os.path.join(bpy.app.tempdir, "cost_")
+        t0 = time.time()
+        for f in frames:
+            sc.frame_set(f)
+            bpy.ops.render.render(write_still=True)
+        dt = time.time() - t0
+    finally:
+        r.resolution_x, r.resolution_y = prev["x"], prev["y"]
+        sc.cycles.samples = prev["s"]; r.filepath = prev["p"]
+        sc.camera = prev["cam"]; sc.frame_set(prev["f"])
+    return {"s_per_frame": round(dt / len(frames), 2),
+            "gpus": [d.name for d in
+                     bpy.context.preferences.addons['cycles'].preferences.devices
+                     if d.use]}

@@ -1,0 +1,22 @@
+{
+  "name": "jorge-3d-skills",
+  "owner": {
+    "name": "Jorge Cruz",
+    "email": "jorgecg1102@gmail.com"
+  },
+  "metadata": {
+    "description": "Skills for 3D prop production pipelines",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "blender-props",
+      "description": "Measurement discipline for Blender prop pipelines: numeric verification gates for modeling, retopology, UV, baking, rendering and animation",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/verifying-blender-props"
+      ]
+    }
+  ]
+}
