@@ -43,14 +43,14 @@ Use `verifications.py` (next to this file). Every function returns a dict.
 | High poly | `degenerate_faces(part)` | nothing above 100:1 aspect ratio |
 | Machined detail | `axis_clearance(...)` | **positive**: a hole must still be a hole after modifiers |
 | Assembly | `axis_clearance` / `profile_clearance` | positive between every pair of parts that touch |
-| Assembly | `pairwise_intersections(collection)` | `clean == True` — bulk, catches crossing, full containment, and (with `margin>0`) near-misses as `mode: "near"`. `mode` is a hint, not a classification: treat `clean`/`overlaps` as the facts. Time it on a subset before the full assembly |
+| Assembly | `pairwise_intersections(collection)` | `clean == True` **and** `unverified_parts == []` — bulk, catches crossing, full containment, and (with `margin>0`) near-misses as `mode: "near"`. `mode` is a hint, not a classification: treat `clean`/`overlaps` as the facts. A non-empty `unverified_parts` means containment was not checked for that part at all — fix its normals and re-run before trusting `clean`. Time it on a subset before the full assembly |
 | Machined parts | `shading(part)` | `sharp_edges > 0` if the part has hard edges |
 | Retopo | `silhouette_hp_vs_lp(...)` | `differing_px_pct < 1` |
 | UV | `uv_overlap(set)` | `overlapping_cells == 0`, `degenerate_uv_faces ≈ 0` |
 | UV | `uv_density(set)` | `deviation_pct < 1` within each set |
 | Bake | compare LP+normal render against HP | mean difference `< 2/255` |
 | Animation | `animated_clearance(...)` | positive across the **whole** range, not just at rest |
-| Animation | `animated_intersections(moving, others, f0, f1)` | `clean == True` across the whole range. `cap_reached == True` means at least one ray cast hit the 64-surface parity cap — do not trust a clean result on that pair |
+| Animation | `animated_intersections(moving, others, f0, f1)` | `clean == True` across the whole range. `cap_reached == True` means at least one ray cast hit the 64-surface parity cap; a non-empty `unverified_parts` means containment could not be checked for that part at all — neither is a clean result you can trust as-is |
 | Animation | `framing_check(...)` | `all_inside == True` |
 | Turntable | `turntable_loop(cam, 1, N+1)` | error `< 1e-6` and uniform step |
 | Backdrop | `backdrop_coverage(...)` | `frames_with_world_AT_EDGES == none` |
@@ -82,7 +82,18 @@ These have no visual equivalent. If you do not run them, you do not know.
    (face centers nudged inward, plus the centroid), not the centroid alone:
    a channel section, a tube, a rim or an angled bracket has its centroid in
    the empty space it wraps around, not in its material, so a single-probe
-   check misses exactly the non-convex parts a chassis is made of.
+   check misses exactly the non-convex parts a chassis is made of. Every
+   probe is **self-validated** before use — kept only if it lands inside its
+   OWN part's material — because "nudge inward along the face normal"
+   silently nudges outward on any face whose normal got flipped (a common
+   side effect of joining several sub-parts into one mesh). An un-validated
+   probe like that drifts into empty space and can land inside a
+   neighbouring part it never touched: measured on a real chassis, a U-clamp
+   correctly wrapping a bar with real clearance — not touching it — was
+   reported "contained" purely because one of its own probes had drifted
+   into the air gap. When every candidate probe for a part fails
+   self-validation, that part is listed in `unverified_parts` instead of
+   being silently treated as clean.
 
 2. **UV overlap.** A closed ring is topologically a torus and needs **two** cuts
    to unwrap. With only one, the unwrap collapses: zero-area faces and stacked

@@ -168,7 +168,7 @@ def animated_clearance(name, profile, f0, f1, step=2, margin=0.0):
 
 
 def _bvh(name, margin=0.0, max_probes=16):
-    """Build a world-space BVH plus a list of points proven to sit in this
+    """Build a world-space BVH plus a list of points PROVEN to sit in this
     part's own material, for _inside()'s parity ray cast.
 
     A SINGLE probe is not enough, and the centroid is the worst choice for
@@ -187,15 +187,26 @@ def _bvh(name, margin=0.0, max_probes=16):
     non-intersecting, so overlap() legitimately returns zero for a real
     interpenetration.
 
-    The fix used here: sample up to max_probes face centers, spread evenly
+    The candidate points: up to max_probes face centers, spread evenly
     across the polygon list, each nudged inward along its own normal by a
-    small fraction of the part's bounding diagonal — small enough not to
-    punch through a thin wall to the far side, large enough to clear the
-    surface itself. That lands inside the material AT the surface, which is
-    exactly where a real interpenetration with a neighbour would also be.
-    The centroid is kept as one extra, cheap probe for solid convex parts
-    where it is reliable. pairwise_intersections accepts a pair as
-    overlapping if ANY probe from either side lands inside the other part.
+    small fraction of the part's bounding diagonal, plus the centroid.
+
+    SELF-VALIDATION, and why it is not optional: "nudged inward along its
+    own normal" assumes the normal is correct and outward-facing. That
+    assumption breaks for real production meshes — a join() of several
+    sub-parts can leave some faces with reversed winding, and nothing in
+    the mesh itself flags it. A candidate built from a flipped normal moves
+    OUTWARD instead of inward and lands in whatever empty space the part
+    wraps around. Measured on a real chassis: a U-clamp wrapping a bar with
+    real clearance (not touching it — BVHTree.overlap == 0, correctly) was
+    reported "contained" because one of the clamp's own candidate points
+    had drifted into the air gap and happened to land inside the bar. A
+    point floating in empty space that isn't part of either solid proves
+    nothing about either one, yet it lit up the alarm. So every candidate is
+    checked against its OWN part's tree before being trusted: only the ones
+    that pass _inside(this_tree, candidate) become probes. One extra ray
+    cast per candidate, self-correcting, and it costs nothing when the
+    normal was right — which is most of the time.
     """
     from mathutils.bvhtree import BVHTree
     ev, m = _evaluated(name)
@@ -213,13 +224,18 @@ def _bvh(name, margin=0.0, max_probes=16):
     # falsely raising cap_reached. Proximity is _any_near's job alone.
     t = BVHTree.FromPolygons(verts, polys, all_triangles=False, epsilon=0.0)
 
-    probes = []
+    candidates = []
     if verts:
         xs = [v.x for v in verts]; ys = [v.y for v in verts]; zs = [v.z for v in verts]
         diag = ((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2
                 + (max(zs) - min(zs)) ** 2) ** 0.5
         inset = min(max(diag * 1e-3, 1e-5), 1e-3)  # 0.01-1 mm, scaled to part size
-        probes.append(sum(verts, Vector()) / len(verts))  # centroid: cheap, convex-only
+        # Centroid kept as one extra candidate: cheap, and self-validation
+        # already filters it out on its own for concave parts (it lands in
+        # their hollow, same as any other bad candidate), so it can no
+        # longer produce a wrong answer — only a redundant one, on convex
+        # parts where a face-center probe would have caught it anyway.
+        candidates.append(sum(verts, Vector()) / len(verts))
         n_faces = len(m.polygons)
         if n_faces:
             stride = max(1, n_faces // max_probes)
@@ -227,8 +243,9 @@ def _bvh(name, margin=0.0, max_probes=16):
                 poly = m.polygons[i]
                 c_world = mw @ poly.center
                 n_world = (nmat @ poly.normal).normalized()
-                probes.append(c_world - n_world * inset)
+                candidates.append(c_world - n_world * inset)
     ev.to_mesh_clear()
+    probes = [pt for pt in candidates if _inside(t, pt)[0]]
     return t, probes
 
 
@@ -294,9 +311,19 @@ def _check_pairs(trees, margin=0.0):
     Shared by pairwise_intersections and animated_intersections so the
     animated sweep can reuse cached BVHs for parts that do not move instead
     of rebuilding all of them every frame.
+
+    Returns (pairs, cap_reached, unverified). `unverified` is the sorted
+    list of names whose self-validated probe list came back EMPTY (see
+    _bvh) — every candidate for that part failed its own self-check. That
+    part's containment role could not be evaluated in either direction for
+    ANY pair: not "clean", "not checked". A part with zero valid probes is
+    almost certainly degenerate geometry (zero-volume, fully non-manifold,
+    or every normal flipped) and deserves a look on its own before trusting
+    anything pairwise_intersections says about it.
     """
     names = list(trees.keys())
     pairs, cap_reached = [], False
+    unverified = sorted(n for n, (_, probes) in trees.items() if not probes)
     for i, a in enumerate(names):
         ta, pa = trees[a]
         for b in names[i + 1:]:
@@ -312,7 +339,7 @@ def _check_pairs(trees, margin=0.0):
                 pairs.append({"a": a, "b": b, "overlaps": 0, "mode": "contained"})
             elif margin > 0.0 and (_any_near(tb, pa, margin) or _any_near(ta, pb, margin)):
                 pairs.append({"a": a, "b": b, "overlaps": 0, "mode": "near"})
-    return pairs, cap_reached
+    return pairs, cap_reached, unverified
 
 
 def pairwise_intersections(names_or_collection, margin=0.0):
@@ -371,6 +398,14 @@ def pairwise_intersections(names_or_collection, margin=0.0):
     `cap_reached` in the returned dict is True if any ray cast hit the
     64-surface parity cap (see _inside) on any pair. When it is True, do not
     trust a `clean == True` result blindly — re-check the flagged geometry.
+
+    `unverified_parts` lists any part whose probes (see _bvh) were ALL
+    discarded by self-validation — every candidate point failed to land
+    inside that part's own material, most likely because a join() or
+    similar left some of its normals flipped. The containment check could
+    not run for that part in either direction. `clean == True` in the
+    presence of a non-empty `unverified_parts` is NOT a clearance, it is a
+    gap in coverage: fix the geometry (recalculate normals) and re-run.
     """
     if isinstance(names_or_collection, str):
         names = [o.name for o in
@@ -380,9 +415,9 @@ def pairwise_intersections(names_or_collection, margin=0.0):
         names = list(names_or_collection)
 
     trees = {n: _bvh(n, margin) for n in names}
-    pairs, cap_reached = _check_pairs(trees, margin)
+    pairs, cap_reached, unverified = _check_pairs(trees, margin)
     return {"pairs": pairs, "count": len(pairs), "clean": not pairs,
-            "cap_reached": cap_reached}
+            "cap_reached": cap_reached, "unverified_parts": unverified}
 
 
 def animated_intersections(moving, others, f0, f1, step=2, margin=0.0):
@@ -393,20 +428,23 @@ def animated_intersections(moving, others, f0, f1, step=2, margin=0.0):
 
     `others` are assumed static for the sweep: their BVH+probes are built
     ONCE, before the frame loop, and reused every frame. Only `moving` is
-    rebuilt per frame. See pairwise_intersections for what `mode`, `margin`
-    and `cap_reached` mean — unchanged here, just accumulated across frames.
+    rebuilt per frame. See pairwise_intersections for what `mode`, `margin`,
+    `cap_reached` and `unverified_parts` mean — unchanged here, just
+    accumulated across every frame checked.
     """
     sc = bpy.context.scene
     saved = sc.frame_current
     static_trees = {n: _bvh(n, margin) for n in others}
     bad, worst_f, cap_reached = [], None, False
+    unverified = set(n for n, (_, probes) in static_trees.items() if not probes)
     for f in range(f0, f1 + 1, step):
         sc.frame_set(f)
         bpy.context.view_layer.update()
         trees = dict(static_trees)
         trees[moving] = _bvh(moving, margin)
-        pairs, cap = _check_pairs(trees, margin)
+        pairs, cap, unv = _check_pairs(trees, margin)
         cap_reached = cap_reached or cap
+        unverified.update(unv)
         for p in pairs:
             if moving in (p["a"], p["b"]):
                 bad.append(dict(p, frame=f))
@@ -415,7 +453,7 @@ def animated_intersections(moving, others, f0, f1, step=2, margin=0.0):
     sc.frame_set(saved)
     bpy.context.view_layer.update()
     return {"pairs": bad, "worst_frame": worst_f, "clean": not bad,
-            "cap_reached": cap_reached}
+            "cap_reached": cap_reached, "unverified_parts": sorted(unverified)}
 
 
 # ─────────────────────────────────────────────────────────── UV
