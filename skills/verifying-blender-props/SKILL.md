@@ -43,14 +43,14 @@ Use `verifications.py` (next to this file). Every function returns a dict.
 | High poly | `degenerate_faces(part)` | nothing above 100:1 aspect ratio |
 | Machined detail | `axis_clearance(...)` | **positive**: a hole must still be a hole after modifiers |
 | Assembly | `axis_clearance` / `profile_clearance` | positive between every pair of parts that touch |
-| Assembly | `pairwise_intersections(collection)` | `clean == True` **and** `unverified_parts == []` — bulk, catches crossing, full containment, and (with `margin>0`) near-misses as `mode: "near"`. `mode` is a hint, not a classification: treat `clean`/`overlaps` as the facts. A non-empty `unverified_parts` means containment was not checked for that part at all — fix its normals and re-run before trusting `clean`. Time it on a subset before the full assembly |
+| Assembly | `pairwise_intersections(collection)` | `clean == True` **and** `unverified_parts == []` **and** `disagreement == False` — bulk, catches crossing, full containment, and (with `margin>0`) near-misses as `mode: "near"`. `mode` is a hint, not a classification: treat `clean`/`overlaps` as the facts. A non-empty `unverified_parts` means containment was not checked for that part at all; `disagreement == True` means some probe's 3 consensus rays did not agree, so a "not contained" for that pair is not fully trusted — fix and re-run before trusting `clean`. Time it on a subset before the full assembly |
 | Machined parts | `shading(part)` | `sharp_edges > 0` if the part has hard edges |
 | Retopo | `silhouette_hp_vs_lp(...)` | `differing_px_pct < 1` |
 | UV | `uv_overlap(set)` | `overlapping_cells == 0`, `degenerate_uv_faces ≈ 0` |
 | UV | `uv_density(set)` | `deviation_pct < 1` within each set |
 | Bake | compare LP+normal render against HP | mean difference `< 2/255` |
 | Animation | `animated_clearance(...)` | positive across the **whole** range, not just at rest |
-| Animation | `animated_intersections(moving, others, f0, f1)` | `clean == True` across the whole range. `cap_reached == True` means at least one ray cast hit the 64-surface parity cap; a non-empty `unverified_parts` means containment could not be checked for that part at all — neither is a clean result you can trust as-is |
+| Animation | `animated_intersections(moving, others, f0, f1)` | `clean == True` across the whole range. `cap_reached == True` means at least one ray cast hit the 64-surface parity cap; a non-empty `unverified_parts` means containment could not be checked for that part at all; `disagreement == True` means some consensus ray-cast probe did not agree unanimously — none of the three is a clean result you can trust as-is |
 | Animation | `framing_check(...)` | `all_inside == True` |
 | Turntable | `turntable_loop(cam, 1, N+1)` | error `< 1e-6` and uniform step |
 | Backdrop | `backdrop_coverage(...)` | `frames_with_world_AT_EDGES == none` |
@@ -93,7 +93,18 @@ These have no visual equivalent. If you do not run them, you do not know.
    reported "contained" purely because one of its own probes had drifted
    into the air gap. When every candidate probe for a part fails
    self-validation, that part is listed in `unverified_parts` instead of
-   being silently treated as clean.
+   being silently treated as clean. Every pair is also rejected first by an
+   **exact bounding-box test**, expanded by `margin`: if two parts' AABBs
+   don't overlap on some axis, no ray is ever cast for that pair — an AABB
+   always contains its solid, so this can never hide a real defect, only
+   skip pairs it is mathematically certain about. Measured in production:
+   three pairs with AABB gaps from tens of centimetres to metres were
+   reported "contained" before this filter existed. And the containment
+   ray cast itself is a **3-direction unanimous consensus**, not one ray: a
+   single ray along a fixed diagonal that grazes a cylinder tangentially
+   (systematic on axles, tubes, bolts — not random) registers one hit where
+   it should register zero or two, flipping parity and calling an exterior
+   point interior.
 
 2. **UV overlap.** A closed ring is topologically a torus and needs **two** cuts
    to unwrap. With only one, the unwrap collapses: zero-area faces and stacked

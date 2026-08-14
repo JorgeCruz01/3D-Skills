@@ -167,6 +167,18 @@ def animated_clearance(name, profile, f0, f1, step=2, margin=0.0):
             "intersects": worst < 0}
 
 
+_PROBE_DIRECTIONS = (
+    Vector((0.8018, 0.2673, 0.5345)),
+    Vector((-0.3574, 0.8944, 0.2673)),
+    Vector((0.1652, -0.5164, 0.8397)),
+)  # deliberately skewed: none is an axis, none is (1,1,1)/permutation/
+   # reflection of it (the old single-ray direction), none is a permutation
+   # or mirror of either other one. A truck chassis is full of axis-aligned
+   # faces, so a probe direction that even looks like an axis or the main
+   # diagonal is exactly the geometry most likely to graze a surface
+   # tangentially instead of crossing it cleanly.
+
+
 def _bvh(name, margin=0.0, max_probes=16):
     """Build a world-space BVH plus a list of points PROVEN to sit in this
     part's own material, for _inside()'s parity ray cast.
@@ -227,6 +239,7 @@ def _bvh(name, margin=0.0, max_probes=16):
     candidates = []
     if verts:
         xs = [v.x for v in verts]; ys = [v.y for v in verts]; zs = [v.z for v in verts]
+        aabb = ((min(xs), max(xs)), (min(ys), max(ys)), (min(zs), max(zs)))
         diag = ((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2
                 + (max(zs) - min(zs)) ** 2) ** 0.5
         inset = min(max(diag * 1e-3, 1e-5), 1e-3)  # 0.01-1 mm, scaled to part size
@@ -244,43 +257,98 @@ def _bvh(name, margin=0.0, max_probes=16):
                 c_world = mw @ poly.center
                 n_world = (nmat @ poly.normal).normalized()
                 candidates.append(c_world - n_world * inset)
+    else:
+        aabb = ((0.0, 0.0), (0.0, 0.0), (0.0, 0.0))
     ev.to_mesh_clear()
     probes = [pt for pt in candidates if _inside(t, pt)[0]]
-    return t, probes
+    return t, probes, aabb
 
 
-def _inside(tree, point, direction=(0.5774, 0.5774, 0.5774), max_hits=64):
-    """Parity ray cast from a single point: odd hit count means enclosed.
+def _inside(tree, point, max_hits=64):
+    """Consensus parity ray cast: odd hit count means enclosed, but only ONE
+    ray is not trustworthy enough to decide that on its own.
 
-    Returns (is_inside, hit_cap_reached). A radiator grille or a fin stack
-    can cross more than max_hits surfaces; if the cap is hit the parity is
-    unreliable and the caller MUST NOT read a resulting False as clean —
-    that is exactly the silent-wrong-answer failure mode this return value
-    exists to prevent.
+    Cast from `point` along each of _PROBE_DIRECTIONS and take the parity of
+    each independently. Measured, not theoretical: a single ray along the
+    old fixed diagonal (1,1,1)/sqrt(3) that grazes a curved surface
+    tangentially registers ONE hit where the true crossing count is zero or
+    two — parity flips, and a point outside is declared inside. Chassis
+    geometry is full of cylinders (axles, tubes, bolts), so this was not a
+    rare edge case, it was systematic for that direction on that geometry.
+    Reproduced directly: a point positioned so the (1,1,1) ray grazes a
+    cylinder came back "inside" under the old single-ray check.
+
+    Requires UNANIMOUS agreement across all three directions to report
+    "inside" — not a majority. A 2-1 split means the point is close enough
+    to a surface that direction alone changes the answer, which is exactly
+    the situation a single ray could not detect and get wrong; the correct
+    response is to refuse to call it, not to outvote the doubt.
+
+    Returns (is_inside, hit_cap_reached, disagreement):
+    - is_inside: True only if all three rays agree the point is enclosed.
+    - hit_cap_reached: True if any single ray hit max_hits surfaces (a
+      radiator grille or fin stack can cross more than that); the caller
+      MUST NOT read a resulting False as clean when this is True.
+    - disagreement: True if the three rays did not all agree (2-1 either
+      way). Signals "near a surface, answer not reliable" even when the
+      2-1 split happens to still resolve to is_inside == False.
     """
     if point is None:
-        return False, False
-    p, d, hits = Vector(point), Vector(direction).normalized(), 0
-    for _ in range(max_hits):
-        loc, nor, idx, dist = tree.ray_cast(p, d)
-        if loc is None:
-            return hits % 2 == 1, False
-        hits += 1
-        p = loc + d * 1e-5
-    return hits % 2 == 1, True
+        return False, False, False
+    p0 = Vector(point)
+    votes, cap_reached = [], False
+    for direction in _PROBE_DIRECTIONS:
+        p, d, hits = p0, direction.normalized(), 0
+        capped = False
+        for _ in range(max_hits):
+            loc, nor, idx, dist = tree.ray_cast(p, d)
+            if loc is None:
+                break
+            hits += 1
+            p = loc + d * 1e-5
+        else:
+            capped = True
+        cap_reached = cap_reached or capped
+        votes.append(hits % 2 == 1)
+    unanimous = len(set(votes)) == 1
+    return (unanimous and votes[0]), cap_reached, (not unanimous)
 
 
 def _any_inside(tree, points):
-    """True if ANY probe point lands inside tree. Also reports whether the
-    64-hit ray cast cap was reached on any of them, so the caller can flag
-    the result as unreliable instead of trusting a clean False."""
-    cap_reached = False
+    """True if ANY probe point lands inside tree (unanimous 3-ray consensus,
+    see _inside). Also reports whether the ray cap was reached, and whether
+    any probe's three rays disagreed with each other — either one means the
+    caller should not fully trust a resulting False as clean."""
+    cap_reached = disagreement = False
     for pt in points:
-        inside, capped = _inside(tree, pt)
+        inside, capped, disagree = _inside(tree, pt)
         cap_reached = cap_reached or capped
+        disagreement = disagreement or disagree
         if inside:
-            return True, cap_reached
-    return False, cap_reached
+            return True, cap_reached, disagreement
+    return False, cap_reached, disagreement
+
+
+def _aabb_maybe_close(box_a, box_b, margin=0.0):
+    """Exact AABB separating-axis rejection, expanded by `margin`.
+
+    If the gap between the two boxes exceeds `margin` on ANY axis, the
+    solids cannot cross, cannot contain each other, and cannot come within
+    `margin` — an AABB always contains its solid by definition, so this can
+    NEVER produce a false negative, only skip pairs it is mathematically
+    certain about. On a ~60-part assembly (~1,770 pairs) the overwhelming
+    majority of pairs are parts metres apart; this turns each of those into
+    two interval comparisons per axis instead of any ray casting at all —
+    and it is not just a speed-up, it is a correctness fix: it is what
+    stops _inside()'s ray casts from ever running on a pair that is
+    provably separated, which is the only way to guarantee the tangential-
+    graze failure mode can't manufacture a "contained" out of thin air.
+    """
+    for (amin, amax), (bmin, bmax) in zip(box_a, box_b):
+        gap = max(amin - bmax, bmin - amax, 0.0)
+        if gap > margin:
+            return False
+    return True
 
 
 def _any_near(tree, points, margin):
@@ -306,40 +374,52 @@ def _any_near(tree, points, margin):
 
 
 def _check_pairs(trees, margin=0.0):
-    """Pairwise crossing/containment/proximity check over {name: (bvh, probes)}.
+    """Pairwise crossing/containment/proximity check over
+    {name: (bvh, probes, aabb)}.
 
     Shared by pairwise_intersections and animated_intersections so the
     animated sweep can reuse cached BVHs for parts that do not move instead
     of rebuilding all of them every frame.
 
-    Returns (pairs, cap_reached, unverified). `unverified` is the sorted
-    list of names whose self-validated probe list came back EMPTY (see
-    _bvh) — every candidate for that part failed its own self-check. That
-    part's containment role could not be evaluated in either direction for
-    ANY pair: not "clean", "not checked". A part with zero valid probes is
-    almost certainly degenerate geometry (zero-volume, fully non-manifold,
-    or every normal flipped) and deserves a look on its own before trusting
-    anything pairwise_intersections says about it.
+    Every pair is AABB-rejected first (see _aabb_maybe_close) — exact, not
+    a heuristic, and it is what makes the containment path safe to run at
+    all on a full assembly: it guarantees ray casts only ever run on pairs
+    that are already known to be close, so a tangential-graze parity flip
+    (see _inside) can no longer manufacture a "contained" between parts
+    that are metres apart.
+
+    Returns (pairs, cap_reached, unverified, disagreement).
+    - `unverified`: sorted list of names whose self-validated probe list
+      came back EMPTY (see _bvh) — every candidate for that part failed its
+      own self-check. That part's containment role could not be evaluated
+      in either direction for ANY pair: not "clean", "not checked".
+    - `disagreement`: True if any containment check's three consensus rays
+      failed to agree unanimously on any probe, for any pair — the point
+      was close enough to a surface that the answer is not reliable, even
+      though it resolved to "not contained".
     """
     names = list(trees.keys())
-    pairs, cap_reached = [], False
-    unverified = sorted(n for n, (_, probes) in trees.items() if not probes)
+    pairs, cap_reached, disagreement = [], False, False
+    unverified = sorted(n for n, (_, probes, _) in trees.items() if not probes)
     for i, a in enumerate(names):
-        ta, pa = trees[a]
+        ta, pa, box_a = trees[a]
         for b in names[i + 1:]:
-            tb, pb = trees[b]
+            tb, pb, box_b = trees[b]
+            if not _aabb_maybe_close(box_a, box_b, margin):
+                continue  # exact rejection: cannot cross, contain, or be within margin
             ov = ta.overlap(tb)
             if ov:
                 pairs.append({"a": a, "b": b, "overlaps": len(ov), "mode": "crossing"})
                 continue
-            inside_ab, cap1 = _any_inside(tb, pa)
-            inside_ba, cap2 = _any_inside(ta, pb)
+            inside_ab, cap1, dis1 = _any_inside(tb, pa)
+            inside_ba, cap2, dis2 = _any_inside(ta, pb)
             cap_reached = cap_reached or cap1 or cap2
+            disagreement = disagreement or dis1 or dis2
             if inside_ab or inside_ba:
                 pairs.append({"a": a, "b": b, "overlaps": 0, "mode": "contained"})
             elif margin > 0.0 and (_any_near(tb, pa, margin) or _any_near(ta, pb, margin)):
                 pairs.append({"a": a, "b": b, "overlaps": 0, "mode": "near"})
-    return pairs, cap_reached, unverified
+    return pairs, cap_reached, unverified, disagreement
 
 
 def pairwise_intersections(names_or_collection, margin=0.0):
@@ -406,6 +486,27 @@ def pairwise_intersections(names_or_collection, margin=0.0):
     not run for that part in either direction. `clean == True` in the
     presence of a non-empty `unverified_parts` is NOT a clearance, it is a
     gap in coverage: fix the geometry (recalculate normals) and re-run.
+
+    Every pair is rejected first by an exact AABB test (see
+    _aabb_maybe_close) before any ray is cast — this is what makes it safe
+    to run "contained" checks at all across a full assembly: it guarantees
+    ray casts never run on a pair that is provably separated, so a stray
+    tangential graze cannot manufacture a false "contained" between parts
+    that are metres apart (measured in production: three such pairs, AABB
+    gaps of tens of centimetres to metres on some axis, reported
+    "contained" before this filter existed). It ALSO means the ~1,770-pair
+    O(n^2) cost above is mostly two interval comparisons per pair, not a
+    ray cast — most pairs in a real assembly are nowhere near each other.
+
+    The containment ray cast itself is a 3-direction UNANIMOUS consensus
+    (see _inside), not one ray: a single ray along a fixed diagonal that
+    grazes a curved surface tangentially (systematic on cylinders — axles,
+    tubes, bolts — not random) registers one hit where it should register
+    zero or two, flipping parity and declaring an exterior point interior.
+    `disagreement` in the returned dict is True if any probe's three rays
+    failed to agree unanimously on any pair checked — the geometry came
+    close enough to a surface that the answer should not be fully trusted,
+    even where it resolved to "not contained".
     """
     if isinstance(names_or_collection, str):
         names = [o.name for o in
@@ -415,9 +516,10 @@ def pairwise_intersections(names_or_collection, margin=0.0):
         names = list(names_or_collection)
 
     trees = {n: _bvh(n, margin) for n in names}
-    pairs, cap_reached, unverified = _check_pairs(trees, margin)
+    pairs, cap_reached, unverified, disagreement = _check_pairs(trees, margin)
     return {"pairs": pairs, "count": len(pairs), "clean": not pairs,
-            "cap_reached": cap_reached, "unverified_parts": unverified}
+            "cap_reached": cap_reached, "unverified_parts": unverified,
+            "disagreement": disagreement}
 
 
 def animated_intersections(moving, others, f0, f1, step=2, margin=0.0):
@@ -426,24 +528,25 @@ def animated_intersections(moving, others, f0, f1, step=2, margin=0.0):
     A door clears at rest and eats the B pillar halfway through its travel.
     Checking only the rest pose is checking the one frame that cannot fail.
 
-    `others` are assumed static for the sweep: their BVH+probes are built
-    ONCE, before the frame loop, and reused every frame. Only `moving` is
-    rebuilt per frame. See pairwise_intersections for what `mode`, `margin`,
-    `cap_reached` and `unverified_parts` mean — unchanged here, just
-    accumulated across every frame checked.
+    `others` are assumed static for the sweep: their BVH+probes+AABB are
+    built ONCE, before the frame loop, and reused every frame. Only
+    `moving` is rebuilt per frame. See pairwise_intersections for what
+    `mode`, `margin`, `cap_reached`, `unverified_parts` and `disagreement`
+    mean — unchanged here, just accumulated across every frame checked.
     """
     sc = bpy.context.scene
     saved = sc.frame_current
     static_trees = {n: _bvh(n, margin) for n in others}
-    bad, worst_f, cap_reached = [], None, False
-    unverified = set(n for n, (_, probes) in static_trees.items() if not probes)
+    bad, worst_f, cap_reached, disagreement = [], None, False, False
+    unverified = set(n for n, (_, probes, _) in static_trees.items() if not probes)
     for f in range(f0, f1 + 1, step):
         sc.frame_set(f)
         bpy.context.view_layer.update()
         trees = dict(static_trees)
         trees[moving] = _bvh(moving, margin)
-        pairs, cap, unv = _check_pairs(trees, margin)
+        pairs, cap, unv, dis = _check_pairs(trees, margin)
         cap_reached = cap_reached or cap
+        disagreement = disagreement or dis
         unverified.update(unv)
         for p in pairs:
             if moving in (p["a"], p["b"]):
@@ -453,7 +556,8 @@ def animated_intersections(moving, others, f0, f1, step=2, margin=0.0):
     sc.frame_set(saved)
     bpy.context.view_layer.update()
     return {"pairs": bad, "worst_frame": worst_f, "clean": not bad,
-            "cap_reached": cap_reached, "unverified_parts": sorted(unverified)}
+            "cap_reached": cap_reached, "unverified_parts": sorted(unverified),
+            "disagreement": disagreement}
 
 
 # ─────────────────────────────────────────────────────────── UV
