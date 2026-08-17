@@ -39,22 +39,66 @@ Use `verifications.py` (next to this file). Every function returns a dict.
 | Phase | Function | Criterion |
 |---|---|---|
 | High poly | `manifold(part)` | `boundary == 0`, `nonmanifold == 0`, `scale == [1,1,1]` |
-| High poly | `dimensions(part, expected_mm)` | within declared tolerance |
+| High poly | `dimensions(part, expected_mm)` | within declared tolerance, **measured against a reference distinct from the one that fixed the scale** (see "No circular verification" below) |
 | High poly | `degenerate_faces(part)` | nothing above 100:1 aspect ratio |
+| Shape-only module | render isolated from 3+ views + an explicit feature checklist (see "The shape gate" below) | every listed feature marked present with the image it is visible in, **plus** a final gestalt question against the reference that overrides all of the above |
 | Machined detail | `axis_clearance(...)` | **positive**: a hole must still be a hole after modifiers |
 | Assembly | `axis_clearance` / `profile_clearance` | positive between every pair of parts that touch |
 | Assembly | `pairwise_intersections(collection)` | `clean == True` **and** `unverified_parts == []` **and** `disagreement == False` — bulk, catches crossing, full containment, and (with `margin>0`) near-misses as `mode: "near"`. `mode` is a hint, not a classification: treat `clean`/`overlaps` as the facts. A non-empty `unverified_parts` means containment was not checked for that part at all; `disagreement == True` means some probe's 3 consensus rays did not agree, so a "not contained" for that pair is not fully trusted — fix and re-run before trusting `clean`. Time it on a subset before the full assembly |
 | Machined parts | `shading(part)` | `sharp_edges > 0` if the part has hard edges |
 | Retopo | `silhouette_hp_vs_lp(...)` | `differing_px_pct < 1` |
-| UV | `uv_overlap(set)` | `overlapping_cells == 0`, `degenerate_uv_faces ≈ 0` |
-| UV | `uv_density(set)` | `deviation_pct < 1` within each set |
+| UV | `uv_overlap(set)` | `overlapping_cells == 0`, `degenerate_uv_faces ≈ 0`, **and** `coverage_pct >= 40` — zero overlap and 0 % density deviation say nothing about how much of the atlas is actually used; a set measured clean on both was still only 5.79 % of the atlas. Run on unique mesh **datablocks** (dedupe by `obj.data.name`), not object names — linked duplicates share one datablock, and re-checking the same UV layout once per linked copy stacks it against itself and reports massive false overlap |
+| UV | `uv_density(set)` | `deviation_pct < 1` within each set, on unique mesh datablocks (see row above — same linked-duplicate trap applies) |
 | Bake | compare LP+normal render against HP | mean difference `< 2/255` |
-| Animation | `animated_clearance(...)` | positive across the **whole** range, not just at rest |
-| Animation | `animated_intersections(moving, others, f0, f1)` | `clean == True` across the whole range. `cap_reached == True` means at least one ray cast hit the 64-surface parity cap; a non-empty `unverified_parts` means containment could not be checked for that part at all; `disagreement == True` means some consensus ray-cast probe did not agree unanimously — none of the three is a clean result you can trust as-is |
-| Animation | `framing_check(...)` | `all_inside == True` |
+| Save / reload | re-open the file (or `wm.read_homefile` + reload) and check that every datablock the pipeline depends on still exists | targeted datablocks present after a real save-and-reload, not just in the session that created them — Blender purges unused-user datablocks on save. Anything intentionally reserved for later (e.g. a material created empty, to be filled next session) needs `use_fake_user = True` |
+| Any | before trusting a `deviation_mm` / `within_tolerance` result, confirm the expected value did not come from the same measurement used to build or scale the piece | a check against its own source data is not a check (see "No circular verification" below) |
+| Assembly / animation | before any render batch, resolve every external file the scene references (HDRIs, image textures) and confirm the path exists on disk | zero missing paths. `framing_check` proves the object fits in frame, not that the scene is lit — a broken HDRI path paints the world magenta and is invisible to every geometry check in this table |
+| Animation | `framing_check(...)` | `all_inside == True`. `all_inside is None` (with `no_geometry_evaluated: True`) means nothing was checked — treat it the same as a failure, never as a pass |
 | Turntable | `turntable_loop(cam, 1, N+1)` | error `< 1e-6` and uniform step |
 | Backdrop | `backdrop_coverage(...)` | `frames_with_world_AT_EDGES == none` |
 | Render | `render_cost(...)` | measure and **report** before launching the batch |
+
+## The shape gate
+
+A module whose entire deliverable **is its shape** — a cabin shell, a helmet,
+a cowling, anything where the geometry is not a mechanism with clearances or
+a UV target but literally the thing the client is buying — needs its own
+gate, because every other gate in this skill can pass on a shape that is
+simply wrong.
+
+Real case: a cabin shell passed manifold, dimensions within ±10 mm, no
+degenerate faces, correct shading, no self-intersections, and survived a
+save-and-reload — six green checks — and it was a box. A cube cut to the
+same overall dimensions would have passed every one of those six checks too.
+None of them look at what the surface *does* between the corners.
+
+The gate: render the module isolated (no assembly around it, backdrop off or
+neutral) from at least three views that actually show its defining curvature
+— not just front/side/top if the shape reads on a diagonal. Then walk an
+**explicit list of the shape's defining features**, written down before you
+render, not improvised while looking at the render. For each feature, record
+present/absent and which of the rendered images shows it. Close with **one
+gestalt question**: "does the silhouette read as the reference at a glance,
+independent of the feature list" — and that question **overrides** every
+per-feature answer above it, because a shape can tick every feature on the
+list (a bump exists, a taper exists) and still read as generically wrong in
+proportion or flow, the way a box with a token bump-and-taper would.
+
+## No circular verification
+
+A check that measures against the same data used to build or scale the
+thing being verified is not a check — it will always agree with itself.
+
+Real case: a blueprint reference was cropped using the tip-to-tip span of its
+own dimension-line arrow as the pixel-to-mm scale factor. Verifying the
+resulting model's dimension against that same arrow's cropped span came back
+0.000 mm of deviation. The real error, measured against an independent
+dimension on the same blueprint, was 6.5 %. The zero was not a clean result;
+it was the scale factor measuring itself.
+
+The rule: whatever fixed the scale, orientation, or crop of a reference
+cannot also be the thing you verify the model against. Pick a second,
+independent dimension, landmark, or source for the check.
 
 ## Five measurements the eye cannot make
 
@@ -137,6 +181,10 @@ These have no visual equivalent. If you do not run them, you do not know.
 | "I'll orbit it with a matcap and see it" | Through MCP there is no orbit. And with a GUI you would not see it either. |
 | "The manifold count came back clean" | Perfect manifold coexists with 2000:1 slivers and closed holes. |
 | "I already fixed it and it looks better" | Better is not a threshold. Measure again. |
+| "It passed every check" | Only because none of the checks were looking at what the piece needed to be. |
+| "It's a known false positive" | A false positive with no measured cause is a plausible diagnosis, not a diagnosis. Three times on this prop the real cause was something else, and worse. |
+| "The deviation came back 0.000" | A perfect zero on a hand-taken measurement is suspicious, not reassuring. It usually means it was measured against itself. |
+| "It didn't fit without reopening a closed dimension" | If a part doesn't fit where you put it, check first whether it's in the right place. A leaf spring that doesn't fit between the dual rear wheels doesn't go there — it goes under the frame rail. |
 
 ## Red flags — stop and measure
 
@@ -191,3 +239,16 @@ Things that survive good technical judgement:
   control.
 - A GPU without RT cores adds throughput under CUDA and drags under OptiX.
   Measure both.
+- `collection.objects` returns only DIRECT children. Any check that iterates
+  a parent collection expecting it to reach subcollections silently checks
+  zero objects — and if the check's pass condition is a trivial inequality
+  over sentinel values (`min >= threshold` with `min` still at its `+1e9`
+  starting value), zero objects reads as a pass. Use `collection.all_objects`,
+  and make the function itself refuse to report success when it evaluated
+  nothing.
+- PIL/Pillow is not part of Blender's bundled Python, and a `blender.exe`
+  installed from the Microsoft Store cannot `pip install` into it — `from
+  PIL import Image` inside a verification function makes that function
+  uninvocable in a normal user session, not just slower. Read rendered
+  pixels via `bpy.data.images.load()` + `Image.pixels.foreach_get()` into
+  numpy instead; Blender already has the result in memory.

@@ -695,9 +695,17 @@ def backdrop_coverage(camera, f0, f1, step=5, res=(480, 270), samples=12):
     be closed. Magenta only in the centre over the object is reflection or
     transmission, which is correct. The distinction matters: looking at the
     image is not enough, because the rim of a backlit cyclorama looks exactly
-    like a hole and is not one."""
+    like a hole and is not one.
+
+    Reads pixels WITHOUT PIL: `from PIL import Image` made this function
+    inejecutable in a normal Blender session — PIL does not ship with
+    Blender's Python, and a `blender.exe` installed from the Microsoft Store
+    cannot `pip install` into it either (confirmed: ModuleNotFoundError on a
+    real user machine). Pixels are read the way Blender already has them in
+    memory: `bpy.data.images.load()` on the just-written render, then
+    `Image.pixels.foreach_get()` into a numpy array. Output contract (keys,
+    thresholds, verdict logic) is unchanged from the PIL version."""
     import numpy as np
-    from PIL import Image
     sc = bpy.context.scene; r = sc.render
     tmp = bpy.app.tempdir
     w = bpy.data.worlds.get("_MAGENTA") or bpy.data.worlds.new("_MAGENTA")
@@ -710,17 +718,29 @@ def backdrop_coverage(camera, f0, f1, step=5, res=(480, 270), samples=12):
     bg.inputs["Color"].default_value = (1, 0, 1, 1)
     nt.links.new(bg.outputs["Background"], o_.inputs["Surface"])
     prev = dict(x=r.resolution_x, y=r.resolution_y, s=sc.cycles.samples,
-                p=r.filepath, cam=sc.camera, w=sc.world, f=sc.frame_current)
+                p=r.filepath, cam=sc.camera, w=sc.world, f=sc.frame_current,
+                fmt=r.image_settings.file_format, cm=r.image_settings.color_mode)
     worst, edges, detail = (0.0, None), [], []
     try:
         sc.world = w; sc.camera = bpy.data.objects[camera]
         r.resolution_x, r.resolution_y = res
         sc.cycles.samples = samples
+        r.image_settings.file_format = 'PNG'
+        r.image_settings.color_mode = 'RGB'
         for f in range(f0, f1 + 1, step):
             sc.frame_set(f)
-            r.filepath = os.path.join(tmp, "cov_%04d.png" % f)
+            path = os.path.join(tmp, "cov_%04d.png" % f)
+            r.filepath = path
             bpy.ops.render.render(write_still=True)
-            a = np.array(Image.open(r.filepath).convert("RGB")).astype(np.int16)
+            img = bpy.data.images.load(path, check_existing=False)
+            try:
+                iw, ih, ch = img.size[0], img.size[1], img.channels
+                px = np.empty(iw * ih * ch, dtype=np.float32)
+                img.pixels.foreach_get(px)
+                a = (px.reshape(ih, iw, ch)[:, :, :3] * 255.0).astype(np.int16)
+                a = np.flipud(a)  # bpy.image rows are bottom-to-top; PIL/render are top-to-bottom
+            finally:
+                bpy.data.images.remove(img)
             m = (a[:, :, 0] > 150) & (a[:, :, 1] < 90) & (a[:, :, 2] > 150)
             pct = 100 * m.sum() / m.size
             if pct > worst[0]:
@@ -738,6 +758,7 @@ def backdrop_coverage(camera, f0, f1, step=5, res=(480, 270), samples=12):
         r.resolution_x, r.resolution_y = prev["x"], prev["y"]
         sc.cycles.samples = prev["s"]; r.filepath = prev["p"]
         sc.frame_set(prev["f"])
+        r.image_settings.file_format = prev["fmt"]; r.image_settings.color_mode = prev["cm"]
     return {"worst_pct": round(worst[0], 4), "worst_frame": worst[1],
             "frames_with_world": len(detail),
             "frames_with_world_AT_EDGES": edges or "none",
@@ -746,21 +767,42 @@ def backdrop_coverage(camera, f0, f1, step=5, res=(480, 270), samples=12):
 
 def framing_check(camera, collection, f0, f1, step=3, margin=0.02):
     """Projects every vertex and checks that nothing leaves the frame across the
-    whole range. A part that unfolds may only leave frame for 10 frames."""
+    whole range. A part that unfolds may only leave frame for 10 frames.
+
+    Walks `all_objects`, not `objects`: a collection's `.objects` returns ONLY
+    its direct children, silently skipping anything that lives in a
+    subcollection. Uncovered on a Corona delivery truck: "Camion" is a parent
+    collection whose 108 meshes live entirely inside 6 subcollections and has
+    0 objects directly in it. `framing_check(cam, "Camion", ...)` with a
+    camera placed INSIDE the truck's cab iterated zero vertices, left every
+    sentinel extreme untouched (u_min/v_min stuck at +1e9, u_max/v_max stuck
+    at -1e9), and still reported `all_inside: True` — an empty range
+    trivially satisfies the inequality. The same camera against the leaf
+    collection "Caja_Ext" correctly reported `all_inside: False`. This is
+    exactly the failure mode this skill exists to prevent: a check that
+    cannot fail.
+
+    Absence of data must never read as success. If no vertex was evaluated
+    across the whole range, `all_inside` is forced to `None` (never `True`)
+    and `no_geometry_evaluated` is set to `True` — a caller must treat
+    `all_inside is not True` as "not proven inside", and `None` specifically
+    as "nothing was checked", not as a pass."""
     from bpy_extras.object_utils import world_to_camera_view
     sc = bpy.context.scene
     cam = bpy.data.objects[camera]
     saved = sc.frame_current
     ext = {"u_min": 1e9, "v_min": 1e9, "u_max": -1e9, "v_max": -1e9}
     fr = {}
+    verts_evaluated = 0
     for f in range(f0, f1 + 1, step):
         sc.frame_set(f); bpy.context.view_layer.update()
         dg = bpy.context.evaluated_depsgraph_get(); dg.update()
-        for o in bpy.data.collections[collection].objects:
+        for o in bpy.data.collections[collection].all_objects:
             if o.type not in {'MESH', 'CURVE'}:
                 continue
             ev = o.evaluated_get(dg); m = ev.to_mesh()
             for v in m.vertices:
+                verts_evaluated += 1
                 c = world_to_camera_view(sc, cam, ev.matrix_world @ v.co)
                 for k, val in (("u_min", c.x), ("v_min", c.y)):
                     if val < ext[k]:
@@ -770,10 +812,15 @@ def framing_check(camera, collection, f0, f1, step=3, margin=0.02):
                         ext[k], fr[k] = val, f
             ev.to_mesh_clear()
     sc.frame_set(saved)
+    if verts_evaluated == 0:
+        return {"extremes": {k: round(v, 4) for k, v in ext.items()},
+                "frames": fr, "all_inside": None,
+                "no_geometry_evaluated": True}
     inside = (ext["u_min"] >= margin and ext["v_min"] >= margin
               and ext["u_max"] <= 1 - margin and ext["v_max"] <= 1 - margin)
     return {"extremes": {k: round(v, 4) for k, v in ext.items()},
-            "frames": fr, "all_inside": inside}
+            "frames": fr, "all_inside": inside,
+            "no_geometry_evaluated": False}
 
 
 def turntable_loop(camera, f_start, f_wrap):
