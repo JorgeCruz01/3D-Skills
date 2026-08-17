@@ -634,6 +634,42 @@ def uv_overlap(names, grid=1024):
 
 # ─────────────────────────────────────────────────────────── render
 
+def _png_pixels(path):
+    """Read a rendered PNG back into a numpy array WITHOUT PIL.
+
+    PIL does not ship with Blender's bundled Python, so `from PIL import Image`
+    makes any function using it unrunnable in a normal Blender session —
+    measured as ModuleNotFoundError on a stock Blender 5.2 install whose
+    executable came from the Microsoft Store and could not be pip-installed
+    into. Blender reads its own renders back through bpy.data.images, so that
+    is what this uses.
+
+    This helper exists because the same PIL import was fixed once in
+    backdrop_coverage and left behind in silhouette_hp_vs_lp: two copies of the
+    same six lines meant one got repaired and its twin stayed broken, unnoticed
+    for a whole prop. One reader, both callers.
+
+    Two details that silently corrupt the numbers if skipped:
+      * the image is forced to 'Non-Color' before reading, or Blender applies
+        the sRGB-to-linear transfer on the way in and the values stop matching
+        what PIL returned from the same file;
+      * bpy.data.images stores rows BOTTOM-to-top, so the array is flipped to
+        the top-to-bottom order the render was framed in. It matters the moment
+        you ask *where* in the frame something is, not just how much of it.
+
+    Returns an (h, w, channels) int16 array in 0..255."""
+    import numpy as np
+    img = bpy.data.images.load(path, check_existing=False)
+    try:
+        img.colorspace_settings.name = 'Non-Color'
+        iw, ih, ch = img.size[0], img.size[1], img.channels
+        px = np.empty(iw * ih * ch, dtype=np.float32)
+        img.pixels.foreach_get(px)
+        return np.flipud((px.reshape(ih, iw, ch) * 255.0).astype(np.int16))
+    finally:
+        bpy.data.images.remove(img)
+
+
 def silhouette_hp_vs_lp(col_hp, col_lp, camera, res=(1400, 1800), samples=16,
                         hide=()):
     """Renders both collections with a transparent background and compares the
@@ -643,7 +679,6 @@ def silhouette_hp_vs_lp(col_hp, col_lp, camera, res=(1400, 1800), samples=16,
     NOTE: the backdrop must be hidden, or alpha comes back opaque across the
     whole frame and the comparison reports 0% difference for the wrong reason."""
     import numpy as np
-    from PIL import Image
     sc = bpy.context.scene; r = sc.render
     vl = bpy.context.view_layer
     tmp = bpy.app.tempdir
@@ -679,8 +714,8 @@ def silhouette_hp_vs_lp(col_hp, col_lp, camera, res=(1400, 1800), samples=16,
         sc.cycles.samples = prev["s"]; r.filepath = prev["p"]
         sc.camera = prev["cam"]; r.film_transparent = prev["tr"]; sc.world = prev["w"]
         r.image_settings.file_format = prev["fmt"]; r.image_settings.color_mode = prev["cm"]
-    a = np.array(Image.open(outputs["hp"]).convert("RGBA"))[:, :, 3].astype(np.int16)
-    b = np.array(Image.open(outputs["lp"]).convert("RGBA"))[:, :, 3].astype(np.int16)
+    a = _png_pixels(outputs["hp"])[:, :, 3]
+    b = _png_pixels(outputs["lp"])[:, :, 3]
     ca, cb = int((a > 128).sum()), int((b > 128).sum())
     diff = int((np.abs(a - b) > 128).sum())
     return {"hp_coverage_px": ca, "lp_coverage_px": cb,
@@ -732,15 +767,7 @@ def backdrop_coverage(camera, f0, f1, step=5, res=(480, 270), samples=12):
             path = os.path.join(tmp, "cov_%04d.png" % f)
             r.filepath = path
             bpy.ops.render.render(write_still=True)
-            img = bpy.data.images.load(path, check_existing=False)
-            try:
-                iw, ih, ch = img.size[0], img.size[1], img.channels
-                px = np.empty(iw * ih * ch, dtype=np.float32)
-                img.pixels.foreach_get(px)
-                a = (px.reshape(ih, iw, ch)[:, :, :3] * 255.0).astype(np.int16)
-                a = np.flipud(a)  # bpy.image rows are bottom-to-top; PIL/render are top-to-bottom
-            finally:
-                bpy.data.images.remove(img)
+            a = _png_pixels(path)[:, :, :3]
             m = (a[:, :, 0] > 150) & (a[:, :, 1] < 90) & (a[:, :, 2] > 150)
             pct = 100 * m.sum() / m.size
             if pct > worst[0]:
