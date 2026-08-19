@@ -56,6 +56,7 @@ Use `verifications.py` (next to this file). Every function returns a dict.
 | Animation | `framing_check(...)` | `all_inside == True`. `all_inside is None` (with `no_geometry_evaluated: True`) means nothing was checked — treat it the same as a failure, never as a pass |
 | Turntable | `turntable_loop(cam, 1, N+1)` | error `< 1e-6` and uniform step |
 | Backdrop | `backdrop_coverage(...)` | `frames_with_world_AT_EDGES == none` |
+| Backdrop | `degenerate_faces(backdrop)` + `shading(backdrop)` before the first still batch | nothing above 100:1 and no broken smooth normals. The backdrop is geometry too: a lathe-spun cyclorama whose floor closes into a merged center pole renders a disk of radial shading artifacts around the pole — invisible in the viewport, present in every still. `backdrop_coverage` cannot see it (it only counts world pixels); caught in production only by eyeballing a finished 256-sample batch that was about to ship. Build the floor as an n-gon disk, or gate the backdrop mesh like any part |
 | Render | `render_cost(...)` | measure and **report** before launching the batch |
 
 ## The shape gate
@@ -185,6 +186,7 @@ These have no visual equivalent. If you do not run them, you do not know.
 | "It's a known false positive" | A false positive with no measured cause is a plausible diagnosis, not a diagnosis. Three times on this prop the real cause was something else, and worse. |
 | "The deviation came back 0.000" | A perfect zero on a hand-taken measurement is suspicious, not reassuring. It usually means it was measured against itself. |
 | "It didn't fit without reopening a closed dimension" | If a part doesn't fit where you put it, check first whether it's in the right place. A leaf spring that doesn't fit between the dual rear wheels doesn't go there — it goes under the frame rail. |
+| "It's just the backdrop, not part of the prop" | The backdrop is in every delivered pixel. A cyclorama with a degenerate pole fan shipped its radial artifacts into a full still batch while every gate on the actual prop was green. |
 
 ## Red flags — stop and measure
 
