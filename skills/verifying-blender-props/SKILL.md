@@ -85,6 +85,20 @@ per-feature answer above it, because a shape can tick every feature on the
 list (a bump exists, a taper exists) and still read as generically wrong in
 proportion or flow, the way a box with a token bump-and-taper would.
 
+**The reference the gestalt answers to must be an image file in the repo**
+(client-provided when there is a client, sourced and saved to `Referencias/`
+otherwise) — never a mental picture of the object category. Real case: a
+construction-tool set passed every numeric gate and its own gestalt
+("reads as a shovel at a glance" — it did), and the client rejected the
+delivery outright: their expected product was a different model, different
+colors, different proportions. The gestalt had been answered against the
+modeler's memory of "a shovel", which can only ever confirm the category,
+not the design. If no reference image exists in the repo when the shape
+gate runs, the gate is not runnable — collecting the image is the first
+step of the gate, not an optional extra. A spec-sheet's dimensions are not
+a substitute: two tools with identical published cotas can look nothing
+alike.
+
 ## No circular verification
 
 A check that measures against the same data used to build or scale the
@@ -187,6 +201,8 @@ These have no visual equivalent. If you do not run them, you do not know.
 | "The deviation came back 0.000" | A perfect zero on a hand-taken measurement is suspicious, not reassuring. It usually means it was measured against itself. |
 | "It didn't fit without reopening a closed dimension" | If a part doesn't fit where you put it, check first whether it's in the right place. A leaf spring that doesn't fit between the dual rear wheels doesn't go there — it goes under the frame rail. |
 | "It's just the backdrop, not part of the prop" | The backdrop is in every delivered pixel. A cyclorama with a degenerate pole fan shipped its radial artifacts into a full still batch while every gate on the actual prop was green. |
+| "I know what this object looks like" | You know what the category looks like. The client expects one specific design, and a delivery got rejected whole because the gestalt was answered from memory instead of against a reference image saved in the repo. |
+| "The spec sheet is my reference" | Cotas constrain size, not shape. Two tools with identical published dimensions can look nothing alike; the gestalt needs a photo, not a table. |
 
 ## Red flags — stop and measure
 
