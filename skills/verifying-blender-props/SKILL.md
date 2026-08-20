@@ -58,6 +58,7 @@ Use `verifications.py` (next to this file). Every function returns a dict.
 | Backdrop | `backdrop_coverage(...)` | `frames_with_world_AT_EDGES == none` |
 | Backdrop | `degenerate_faces(backdrop)` + `shading(backdrop)` before the first still batch | nothing above 100:1 and no broken smooth normals. The backdrop is geometry too: a lathe-spun cyclorama whose floor closes into a merged center pole renders a disk of radial shading artifacts around the pole — invisible in the viewport, present in every still. `backdrop_coverage` cannot see it (it only counts world pixels); caught in production only by eyeballing a finished 256-sample batch that was about to ship. Build the floor as an n-gon disk, or gate the backdrop mesh like any part |
 | Render | `render_cost(...)` | measure and **report** before launching the batch |
+| Delivery renders | side-by-side against the best previously delivered prop in the repo (its hero still, its topology plate), with an explicit checklist written first: which mesh renders (HP, not the game LP), visible contact shadows, backdrop gradient/reflection, editorial layout and labels on topology plates | every item matched or consciously improved. Real case: a set shipped stills of the game LP (visible part seams, hard edges), flat shadowless lighting, and unlabeled topology dumps — while one folder away the repo held a delivered prop with studio lighting, HP renders and labeled plates. Every geometry gate was green; nothing compared the delivery against the standard the client already owned. The prior prop's .blend is also the fastest lighting reference: open it and copy the rig |
 
 ## The shape gate
 
@@ -203,6 +204,7 @@ These have no visual equivalent. If you do not run them, you do not know.
 | "It's just the backdrop, not part of the prop" | The backdrop is in every delivered pixel. A cyclorama with a degenerate pole fan shipped its radial artifacts into a full still batch while every gate on the actual prop was green. |
 | "I know what this object looks like" | You know what the category looks like. The client expects one specific design, and a delivery got rejected whole because the gestalt was answered from memory instead of against a reference image saved in the repo. |
 | "The spec sheet is my reference" | Cotas constrain size, not shape. Two tools with identical published dimensions can look nothing alike; the gestalt needs a photo, not a table. |
+| "The scene has lights, that's enough" | Lit is not delivered-quality. The repo's best prior prop defines the delivery bar; a render that never stood next to it shipped flat, shadowless and on the wrong mesh. |
 
 ## Red flags — stop and measure
 
