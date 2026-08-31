@@ -44,13 +44,15 @@ Use `verifications.py` (next to this file). Every function returns a dict.
 | Shape-only module | render isolated from 3+ views + an explicit feature checklist (see "The shape gate" below) | every listed feature marked present with the image it is visible in, **plus** a final gestalt question against the reference that overrides all of the above |
 | Machined detail | `axis_clearance(...)` | **positive**: a hole must still be a hole after modifiers |
 | Assembly | `axis_clearance` / `profile_clearance` | positive between every pair of parts that touch |
-| Assembly | `pairwise_intersections(collection)` | `clean == True` **and** `unverified_parts == []` **and** `disagreement == False` — bulk, catches crossing, full containment, and (with `margin>0`) near-misses as `mode: "near"`. `mode` is a hint, not a classification: treat `clean`/`overlaps` as the facts. A non-empty `unverified_parts` means containment was not checked for that part at all; `disagreement == True` means some probe's 3 consensus rays did not agree, so a "not contained" for that pair is not fully trusted — fix and re-run before trusting `clean`. Time it on a subset before the full assembly |
+| Assembly | `pairwise_intersections(collection)` | `clean == True` **and** `unverified_parts == []` **and** `disagreement == False` — bulk, catches crossing, full containment, and (with `margin>0`) near-misses as `mode: "near"`. `mode` is a hint, not a classification: treat `clean`/`overlaps` as the facts. A non-empty `unverified_parts` means containment was not checked for that part at all; `disagreement == True` means some probe's 3 consensus rays did not agree, so a "not contained" for that pair is not fully trusted — fix and re-run before trusting `clean`. **`open_meshes` must be `{}`**: parity is UNDEFINED on an open surface, not merely unreliable, because rays leave through the hole and change the crossing count. Measured on an avatar hand cut at the wrist (636 boundary edges): a nail comfortably outside the finger disagreed on 418 of 418 vertices — every one. Against a temp hole-filled copy, 0. Fix with a **temporary** copy plus `bmesh.ops.holes_fill`, never the original. Time it on a subset before the full assembly |
 | Machined parts | `shading(part)` | `sharp_edges > 0` if the part has hard edges |
-| Retopo | `silhouette_hp_vs_lp(...)` | `differing_px_pct < 1` |
-| UV | `uv_overlap(set)` | `overlapping_cells == 0`, `degenerate_uv_faces ≈ 0`, **and** `coverage_pct >= 40` — zero overlap and 0 % density deviation say nothing about how much of the atlas is actually used; a set measured clean on both was still only 5.79 % of the atlas. Run on unique mesh **datablocks** (dedupe by `obj.data.name`), not object names — linked duplicates share one datablock, and re-checking the same UV layout once per linked copy stacks it against itself and reports massive false overlap |
+| Fitted parts | `seating_gap(cover, base)` | `seated == True`. A part whose job is to sit ON a surface — press-on nail, decal shell, hub cap, trim panel, badge — fails in TWO directions, and every other clearance gate here only asks whether the gap is positive. **Floating is a positive gap.** Measured: a nail hovering 0.945 mm min / 1.558 mm median above the surface it was glued to passed `pairwise_intersections` clean and every positive-clearance check. The ceiling applies to the LOW percentile, not the minimum: a fitted part only contacts over part of its area. `seated is None` means inconclusive — check `contact_pct` and whether `base` was over-scoped |
+| Retopo | `silhouette_hp_vs_lp(...)` | `differing_px_pct < 1`. **Subdivision is not automatically a valid HP.** Catmull-Clark contracts, and on a thin shell with a sharp tip it contracts a lot: measured 7.1–8.3 % silhouette deviation between a nail and its own Subsurf, seven times the threshold. Baking normals from that would have injected error rather than removed it. If the LP already IS the design surface — analytic, no high-frequency detail above it — say so and ship a neutral normal map instead of a fake bake |
+| UV | `uv_overlap(set)` | `overlapping_cells == 0`, `degenerate_uv_faces ≈ 0`, **and** `coverage_pct >= 40` — zero overlap and 0 % density deviation say nothing about how much of the atlas is actually used; a set measured clean on both was still only 5.79 % of the atlas. Run on one representative per **UV-sharing group**, not per object and not merely per datablock. Deduping by `obj.data.name` handles linked duplicates, but it is not sufficient: parts can hold *distinct* datablocks that deliberately share the same UV space — mirrored halves pointing at one atlas, tiled modules, a left and right hand meant to use a single texture. Measured on a 10-nail set where every object had its own datablock and the mirrored pairs shared UVs by design: one hand alone reported **348** overlapping cells with `max_layers` 48, all of them a deliberate shared patch; the full ten reported **446,564** with `max_layers` 96. Nothing was wrong. Decide which parts are meant to share, run the gate on one of each, and write down why |
 | UV | `uv_density(set)` | `deviation_pct < 1` within each set, on unique mesh datablocks (see row above — same linked-duplicate trap applies) |
 | Bake | compare LP+normal render against HP | mean difference `< 2/255` |
-| Save / reload | re-open the file (or `wm.read_homefile` + reload) and check that every datablock the pipeline depends on still exists | targeted datablocks present after a real save-and-reload, not just in the session that created them — Blender purges unused-user datablocks on save. Anything intentionally reserved for later (e.g. a material created empty, to be filled next session) needs `use_fake_user = True` |
+| Save / reload | re-open the file (or `wm.read_homefile` + reload) and check that every datablock the pipeline depends on still exists | targeted datablocks present after a real save-and-reload, not just in the session that created them — Blender purges unused-user datablocks on save. Anything intentionally reserved for later (e.g. a material created empty, to be filled next session) needs `use_fake_user = True`. This is also the gate that catches work done outside a build script: hardware rebuilt from a script lost the UV a manual `smart_project` had given it, and nothing else noticed |
+| File hand-off | `datablocks_on_disk(path, expect_objects=…)` before copying, linking or handing over any `.blend` | `ok == True`. **Measuring the session is not measuring the file.** Every other function here inspects `bpy.data`, which is the open session; an unsaved session and its file on disk are different objects and nothing warns you. Measured: a client `.blend` was inspected through `bpy.data` (21,966 verts, all correct) and the FILE copied — the file was 140,543 bytes and contained **no objects at all**. The mesh existed only in the unsaved session and reached disk later, after the copy was made. The working file was born empty |
 | Any | before trusting a `deviation_mm` / `within_tolerance` result, confirm the expected value did not come from the same measurement used to build or scale the piece | a check against its own source data is not a check (see "No circular verification" below) |
 | Assembly / animation | before any render batch, resolve every external file the scene references (HDRIs, image textures) and confirm the path exists on disk | zero missing paths. `framing_check` proves the object fits in frame, not that the scene is lit — a broken HDRI path paints the world magenta and is invisible to every geometry check in this table |
 | Animation | `framing_check(...)` | `all_inside == True`. `all_inside is None` (with `no_geometry_evaluated: True`) means nothing was checked — treat it the same as a failure, never as a pass. **Run it under the exact render settings of the batch it protects** — the projection depends on the scene's resolution/aspect at call time. Measured in production: the gate ran while the scene still held a portrait plate resolution (1200×1560), passed a camera whose framing did not fit the batch's 1920×1080 landscape, and 180 frames rendered with the subject cropped. Set the batch resolution first, and confirm the first frame with a cheap test render — the render is the truth the gate approximates |
@@ -205,6 +207,10 @@ These have no visual equivalent. If you do not run them, you do not know.
 | "I know what this object looks like" | You know what the category looks like. The client expects one specific design, and a delivery got rejected whole because the gestalt was answered from memory instead of against a reference image saved in the repo. |
 | "The spec sheet is my reference" | Cotas constrain size, not shape. Two tools with identical published dimensions can look nothing alike; the gestalt needs a photo, not a table. |
 | "The scene has lights, that's enough" | Lit is not delivered-quality. The repo's best prior prop defines the delivery bar; a render that never stood next to it shipped flat, shadowless and on the wrong mesh. |
+| "I already measured the scene, the file is the scene" | It is not. `bpy.data` is the open session. A client file measured that way — 21,966 verts, everything correct — was 140,543 bytes on disk and held **zero objects**; the mesh was unsaved. The copy made from it was empty. Use `datablocks_on_disk` before any hand-off. |
+| "The gap is positive, so it fits" | Floating is a positive gap. A press-on nail hovering 1.5 mm above the surface it is glued to passes every clearance gate in this file. A part that must SIT on something needs a ceiling as well as a floor — `seating_gap`. |
+| "I'll just write the check inline, it's faster than loading the skill" | Then you will write it worse. A hand-rolled UV overlap test that rasterized each face's bounding BOX instead of the polygon reported 559,508 overlapping cells; the `uv_overlap` already in this file rasterizes barycentrically and reported 30, all of them deliberate. Twenty minutes chasing a defect that did not exist. |
+| "The average face normal gives me the outward direction" | Only if the mesh's winding is consistent, and production meshes are not. Measured on one hand: the thumb nail's normals were inverted (coherence 0.84 pointing the wrong way) while the finger nails' normals nearly cancelled when averaged (coherence 0.038 — noise). Orientation needs a **geometric** test and a second, independent one to confirm it. |
 
 ## Red flags — stop and measure
 
@@ -272,3 +278,35 @@ Things that survive good technical judgement:
   uninvocable in a normal user session, not just slower. Read rendered
   pixels via `bpy.data.images.load()` + `Image.pixels.foreach_get()` into
   numpy instead; Blender already has the result in memory.
+- **The axis signs a PCA/SVD returns are arbitrary, per component.** Building
+  a local frame from `numpy.linalg.svd` gives correct axis DIRECTIONS and
+  meaningless orientations: on one hand's five nails the third axis needed
+  flipping on three of them, and on the mirrored hand on a different two.
+  Every axis of a derived frame needs its own geometric test — and confirm
+  the test with a second, independent one. Here: "a nail's cross-section is
+  a dome, the centre sits higher than the edges", cross-checked against "a
+  point 3 mm along the outward normal must be outside the hand". They agreed
+  on all ten; the face-normal method they replaced did not.
+- A parametric surface's radius is **not** scale-invariant, its depth ratio
+  is. Widening a circular-arc cross-section while holding the radius fixed
+  opens the arc angle instead of scaling the shape: half-width 4.77 → 5.32 mm
+  at R = 5.6 took a measured 46° arc to 72° and rolled a nail into a
+  half-tube. Parameterise by `r = h/a = tan(θ/2)` and derive
+  `R = a(1+r²)/2r`.
+- Bending a grid's boundary by **displacing** its vertices folds the mesh as
+  soon as the displacement exceeds the row spacing — 1.6 mm of cuticle curve
+  against a 0.594 mm first row put row 0's edge past row 1. Reparameterise
+  per column instead (`x = x₀(i) + (total − x₀(i))·σ(j)`), which is monotone
+  in `j` by construction and cannot fold. Verify by measuring the minimum
+  step per column.
+- After `Solidify`, vertex `k` is the original surface and `k + n_original`
+  its offset copy, so `normalize(V[k] − V[k+n])` is the EXACT outward normal
+  — free, and immune to the winding problems that make face normals
+  unreliable. Deriving that direction from the solid's centroid instead put
+  every bead and spike **inside** the part on a curved surface: 92 of 156
+  vertices on one.
+- Boolean cuts land micrometres from existing vertices and leave n-gons with
+  one 0.015 mm edge — 178:1 aspect, and degenerate triangles once anything
+  triangulates them. A global merge-by-distance is not the fix: on the same
+  mesh the legitimate tip had 0.024 mm edges and would have collapsed. Merge
+  only within a radius of the cut.

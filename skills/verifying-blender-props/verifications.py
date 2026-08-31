@@ -179,6 +179,97 @@ _PROBE_DIRECTIONS = (
    # tangentially instead of crossing it cleanly.
 
 
+def seating_gap(cover, base, min_mm=0.10, max_mm=0.50, low_pct=10):
+    """Two-sided clearance for a part that must SIT ON another surface.
+
+    Every other clearance gate in this file asks one question: is the gap
+    positive. That is the right question for parts that must not touch. It
+    is the wrong question for a part whose job is to sit ON something — a
+    press-on nail, a decal shell, a hub cap, a trim panel, a badge. Those
+    fail in TWO directions, and "positive gap" only catches one of them.
+
+    Measured, and it is the reason this function exists: a press-on nail
+    modelled over a body's own nail passed `pairwise_intersections` clean,
+    passed every positive-clearance check, and had a minimum gap of 0.945 mm
+    with a median of 1.558 mm. It was FLOATING a millimetre and a half above
+    the surface it was supposed to be glued to. Visible instantly in a
+    render once someone thought to look, invisible to every number being
+    measured, because floating is a positive gap. Lowering the part until
+    the gap read 0.197 mm min / 0.281 mm at the 10th percentile fixed it.
+
+    So the criterion has a floor AND a ceiling:
+    - `min_mm`  floor: below this the parts are effectively intersecting,
+                and in a game engine that is z-fighting.
+    - `max_mm`  ceiling on the LOW percentile, not on the minimum. A fitted
+                part only contacts its base over part of its area — a nail
+                touches at the bed and lifts away past the free edge — so
+                requiring the MEDIAN to be small would be wrong. What must
+                be small is the close end of the distribution: the part has
+                to actually land somewhere.
+
+    `low_pct` is which percentile carries that ceiling (10 by default).
+    Distances are measured from every vertex of `base` to the nearest point
+    on `cover`'s evaluated surface, so modifiers count.
+
+    `base` MUST be the surface actually being covered, not the whole body it
+    belongs to. Feed it a whole two-hand mesh to check one fingernail and
+    almost every sample is metres away: the low percentile then measures
+    unrelated anatomy and the function reports "floating" for a part that is
+    seated perfectly. Measured exactly that way while testing this function —
+    21,966 samples, median 1,079 mm, verdict "floating", nail fine. So
+    `contact_pct` is returned alongside: the share of base samples that are
+    within the ceiling at all. When that number is near zero the input is
+    over-scoped far more often than the part is really floating, and the
+    verdict says so instead of quietly blaming the geometry.
+
+    Returns min/low/median/max in mm plus `seated`. `seated` is False both
+    when the part bites into its base and when it hovers over it, and
+    `verdict` says which.
+    """
+    from mathutils.bvhtree import BVHTree
+    ev_c, mc = _evaluated(cover)
+    mwc = ev_c.matrix_world
+    tree = BVHTree.FromPolygons([mwc @ v.co for v in mc.vertices],
+                                [list(p.vertices) for p in mc.polygons],
+                                all_triangles=False, epsilon=0.0)
+    ev_c.to_mesh_clear()
+    ev_b, mb = _evaluated(base)
+    mwb = ev_b.matrix_world
+    d = []
+    for v in mb.vertices:
+        hit = tree.find_nearest(mwb @ v.co)
+        if hit[0] is not None:
+            d.append(hit[3] * 1000.0)
+    ev_b.to_mesh_clear()
+    if not d:
+        return {"seated": None, "no_geometry_evaluated": True,
+                "verdict": "nothing measured"}
+    d.sort()
+    n = len(d)
+    lo = d[min(int(n * low_pct / 100.0), n - 1)]
+    contact = sum(1 for x in d if x <= max_mm)
+    contact_pct = round(100.0 * contact / n, 2)
+    res = {"samples": n,
+           "min_mm": round(d[0], 4),
+           "low_mm": round(lo, 4),
+           "median_mm": round(d[n // 2], 4),
+           "max_mm": round(d[-1], 4),
+           "low_pct": low_pct,
+           "contact_pct": contact_pct}
+    if d[0] < min_mm:
+        res.update(seated=False, verdict="biting in: min below floor")
+    elif lo > max_mm and contact_pct < 2.0:
+        res.update(seated=None,
+                   verdict="inconclusive: only %.2f%% of base samples are within "
+                           "the ceiling. `base` is probably over-scoped — pass the "
+                           "surface being covered, not the whole body." % contact_pct)
+    elif lo > max_mm:
+        res.update(seated=False, verdict="floating: low percentile above ceiling")
+    else:
+        res.update(seated=True, verdict="seated")
+    return res
+
+
 def _bvh(name, margin=0.0, max_probes=16):
     """Build a world-space BVH plus a list of points PROVEN to sit in this
     part's own material, for _inside()'s parity ray cast.
@@ -259,9 +350,33 @@ def _bvh(name, margin=0.0, max_probes=16):
                 candidates.append(c_world - n_world * inset)
     else:
         aabb = ((0.0, 0.0), (0.0, 0.0), (0.0, 0.0))
+
+    # Boundary edges, because PARITY IS UNDEFINED ON AN OPEN SURFACE.
+    # _inside() counts ray crossings and reads the parity; that only means
+    # "enclosed" if the surface actually encloses something. Fire a ray at a
+    # shell with a hole in it and some rays leave through the hole, changing
+    # the crossing count by one and flipping the answer. Measured on an
+    # avatar hand mesh cut at the wrist (68 boundary edges): a nail sitting
+    # on a fingertip, comfortably outside the finger, produced disagreement
+    # on 418 of its 418 vertices — every single one. The same test against a
+    # temporary hole-filled copy of that hand gave 0 disagreements.
+    #
+    # Reported, not silently repaired: filling holes changes what is being
+    # measured, and only the caller knows whether the cap belongs to the
+    # solid. The fix at the call site is a TEMP copy plus
+    # bmesh.ops.holes_fill(), never the original mesh.
+    edge_use = {}
+    for poly in m.polygons:
+        vs = list(poly.vertices)
+        for i in range(len(vs)):
+            a_, b_ = vs[i], vs[(i + 1) % len(vs)]
+            k = (b_, a_) if a_ > b_ else (a_, b_)
+            edge_use[k] = edge_use.get(k, 0) + 1
+    open_edges = sum(1 for c in edge_use.values() if c == 1)
+
     ev.to_mesh_clear()
     probes = [pt for pt in candidates if _inside(t, pt)[0]]
-    return t, probes, aabb
+    return t, probes, aabb, open_edges
 
 
 def _inside(tree, point, max_hits=64):
@@ -388,7 +503,7 @@ def _check_pairs(trees, margin=0.0):
     (see _inside) can no longer manufacture a "contained" between parts
     that are metres apart.
 
-    Returns (pairs, cap_reached, unverified, disagreement).
+    Returns (pairs, cap_reached, unverified, disagreement, open_meshes).
     - `unverified`: sorted list of names whose self-validated probe list
       came back EMPTY (see _bvh) — every candidate for that part failed its
       own self-check. That part's containment role could not be evaluated
@@ -397,14 +512,19 @@ def _check_pairs(trees, margin=0.0):
       failed to agree unanimously on any probe, for any pair — the point
       was close enough to a surface that the answer is not reliable, even
       though it resolved to "not contained".
+    - `open_meshes`: {name: boundary_edge_count} for every part that is not
+      a closed surface. Containment against any of these is UNDEFINED, not
+      merely unreliable (see _bvh). A clean result that includes open
+      meshes has not measured containment for those parts at all.
     """
     names = list(trees.keys())
     pairs, cap_reached, disagreement = [], False, False
-    unverified = sorted(n for n, (_, probes, _) in trees.items() if not probes)
+    unverified = sorted(n for n, (_, probes, _, _) in trees.items() if not probes)
+    open_meshes = {n: oe for n, (_, _, _, oe) in trees.items() if oe}
     for i, a in enumerate(names):
-        ta, pa, box_a = trees[a]
+        ta, pa, box_a, _ = trees[a]
         for b in names[i + 1:]:
-            tb, pb, box_b = trees[b]
+            tb, pb, box_b, _ = trees[b]
             if not _aabb_maybe_close(box_a, box_b, margin):
                 continue  # exact rejection: cannot cross, contain, or be within margin
             ov = ta.overlap(tb)
@@ -419,7 +539,7 @@ def _check_pairs(trees, margin=0.0):
                 pairs.append({"a": a, "b": b, "overlaps": 0, "mode": "contained"})
             elif margin > 0.0 and (_any_near(tb, pa, margin) or _any_near(ta, pb, margin)):
                 pairs.append({"a": a, "b": b, "overlaps": 0, "mode": "near"})
-    return pairs, cap_reached, unverified, disagreement
+    return pairs, cap_reached, unverified, disagreement, open_meshes
 
 
 def pairwise_intersections(names_or_collection, margin=0.0):
@@ -516,10 +636,11 @@ def pairwise_intersections(names_or_collection, margin=0.0):
         names = list(names_or_collection)
 
     trees = {n: _bvh(n, margin) for n in names}
-    pairs, cap_reached, unverified, disagreement = _check_pairs(trees, margin)
+    pairs, cap_reached, unverified, disagreement, open_meshes = \
+        _check_pairs(trees, margin)
     return {"pairs": pairs, "count": len(pairs), "clean": not pairs,
             "cap_reached": cap_reached, "unverified_parts": unverified,
-            "disagreement": disagreement}
+            "disagreement": disagreement, "open_meshes": open_meshes}
 
 
 def animated_intersections(moving, others, f0, f1, step=2, margin=0.0):
@@ -538,16 +659,18 @@ def animated_intersections(moving, others, f0, f1, step=2, margin=0.0):
     saved = sc.frame_current
     static_trees = {n: _bvh(n, margin) for n in others}
     bad, worst_f, cap_reached, disagreement = [], None, False, False
-    unverified = set(n for n, (_, probes, _) in static_trees.items() if not probes)
+    unverified = set(n for n, (_, probes, _, _) in static_trees.items() if not probes)
+    open_meshes = {}
     for f in range(f0, f1 + 1, step):
         sc.frame_set(f)
         bpy.context.view_layer.update()
         trees = dict(static_trees)
         trees[moving] = _bvh(moving, margin)
-        pairs, cap, unv, dis = _check_pairs(trees, margin)
+        pairs, cap, unv, dis, opn = _check_pairs(trees, margin)
         cap_reached = cap_reached or cap
         disagreement = disagreement or dis
         unverified.update(unv)
+        open_meshes.update(opn)
         for p in pairs:
             if moving in (p["a"], p["b"]):
                 bad.append(dict(p, frame=f))
@@ -557,7 +680,7 @@ def animated_intersections(moving, others, f0, f1, step=2, margin=0.0):
     bpy.context.view_layer.update()
     return {"pairs": bad, "worst_frame": worst_f, "clean": not bad,
             "cap_reached": cap_reached, "unverified_parts": sorted(unverified),
-            "disagreement": disagreement}
+            "disagreement": disagreement, "open_meshes": open_meshes}
 
 
 # ─────────────────────────────────────────────────────────── UV
@@ -897,3 +1020,62 @@ def render_cost(camera, frames=(1,), res=(1920, 1080), samples=256):
             "gpus": [d.name for d in
                      bpy.context.preferences.addons['cycles'].preferences.devices
                      if d.use]}
+
+
+# ─────────────────────────────────────────────────────── file vs session
+
+def datablocks_on_disk(path, expect_objects=(), expect_meshes=()):
+    """Read a .blend ON DISK and report what it actually contains.
+
+    MEASURING THE SESSION IS NOT MEASURING THE FILE. Every other function
+    here inspects `bpy.data`, which is the open session. That is the right
+    target while modelling and the wrong one the moment a file gets copied,
+    handed over, linked, or used as the input to the next stage — because
+    an unsaved session and its file on disk are different objects, and
+    nothing warns you.
+
+    Measured, and it cost a rebuild: a client's .blend was opened, its mesh
+    inspected through `bpy.data` (21,966 verts, 14 loose parts, all
+    correct), and the FILE copied to a new working location. The file was
+    140,543 bytes and contained no objects at all — the mesh existed only
+    in the unsaved session. It reached disk later, when the session was
+    closed and saved, by which time the copy had already been made from the
+    objectless version. The working file was born empty and it took
+    reopening it and querying `bpy.data.objects` to notice.
+
+    Uses `bpy.data.libraries.load` in read-only mode: nothing is imported,
+    nothing is linked, the current scene is untouched. Blender cannot load
+    from the file it currently has open, so pass a path other than
+    `bpy.data.filepath` — to check the current file, save it first and then
+    verify the copy you are about to hand off.
+
+    Returns what the file holds plus `missing`, and `ok` is True only when
+    every expected name is present.
+    """
+    import os
+    if not os.path.exists(path):
+        return {"ok": False, "error": "file does not exist", "path": path}
+    if os.path.normcase(os.path.abspath(path)) == \
+            os.path.normcase(os.path.abspath(bpy.data.filepath or "")):
+        return {"ok": False, "path": path,
+                "error": "this is the currently open file; Blender cannot load "
+                         "from it. Save, then verify the copy you will hand off."}
+    found = {}
+    try:
+        with bpy.data.libraries.load(path) as (src, _dst):
+            for k in ("objects", "meshes", "materials", "images",
+                      "collections", "scenes", "actions"):
+                found[k] = sorted(getattr(src, k, []) or [])
+    except Exception as exc:  # unreadable / not a .blend / wrong version
+        return {"ok": False, "error": repr(exc), "path": path}
+    missing = {
+        "objects": [n for n in expect_objects if n not in found.get("objects", [])],
+        "meshes": [n for n in expect_meshes if n not in found.get("meshes", [])],
+    }
+    return {"ok": not (missing["objects"] or missing["meshes"]),
+            "path": path,
+            "size_bytes": os.path.getsize(path),
+            "counts": {k: len(v) for k, v in found.items()},
+            "objects": found.get("objects", []),
+            "meshes": found.get("meshes", []),
+            "missing": missing}
