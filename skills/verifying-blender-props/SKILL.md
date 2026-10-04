@@ -499,6 +499,18 @@ Things that survive good technical judgement:
   tube head and long rear vents was read as a heat gun, and a revolver
   built without a reference was rejected twice. One unmistakable feature
   (a bit in the chuck) did more than every fillet.
+- Dimensions are not a reference. A revolver built from class figures
+  (overall length, barrel, cylinder, cartridge) passed every measured check
+  and was rejected three times: grip, trigger and hammer "not realistic",
+  cylinder "too small". Two photographs fixed in one pass what the numbers
+  could not say: how much of the frame window the cylinder fills, that the
+  stocks stand proud of the frame, that the hammer sits at top-strap height.
+  Download two or three photos into the prop's reference folder BEFORE
+  writing the builder, and put the render next to the photo before the bake.
+- Fine repeated relief (checkering, anti-slip dimples) belongs in a shader
+  bump on the high poly, not in booleans: the normal bake picks it up. It
+  costs fidelity score though — 0.98 to 2.56 on a revolver, 1.89 to 2.21 on
+  a drill. Report it; do not call the bake wrong.
 - An object joined from parts inherits the first part's `hide_render`. A
   silhouette comparison then read 100 % different / −100 % area: the low poly
   was simply not rendering. A −100 % area delta is never a geometry result.
