@@ -25,9 +25,10 @@ To pull later updates:
 
 **`verifying-blender-props`** — measurement discipline for a Blender prop
 pipeline driven through MCP or `bpy` scripts. Verification gates per phase, each
-returning a number against a threshold, plus `verifications.py`: 22 functions
+returning a number against a threshold, plus `verifications.py`: 26 functions
 covering manifold and dimension checks, degenerate faces, clearance and
 seating between parts (static and animated), signed distance to a surface,
+leak test of cavities, high-poly fingerprint, decal visibility,
 UV density and overlap, LP-vs-HP silhouette, bake fidelity, texture files on
 disk, FBX round-trip, datablocks on disk, backdrop coverage during a
 turntable, framing across an animation range, turntable loop closure, and

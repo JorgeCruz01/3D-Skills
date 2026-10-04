@@ -1221,11 +1221,27 @@ def bake_fidelity(col_hp, col_lp, camera, out_dir, res=(1024, 1024), samples=48,
     covered = (px["hp"][..., 3] > 0.5) | (px["lp"][..., 3] > 0.5)
     if not covered.any():
         return {"ok": False, "evaluated": 0}
-    d = np.abs(px["hp"][..., :3] - px["lp"][..., :3]).mean(-1)[covered] * 255
+    full = np.abs(px["hp"][..., :3] - px["lp"][..., :3]).mean(-1) * 255
+    d = full[covered]
     mean = float(d.mean())
+    # Where does the difference live? `mean_smooth_255` is the mean over pixels
+    # that are inside BOTH silhouettes (eroded 3 px) and where the HP render
+    # itself is smooth: that is what the normal map is responsible for. The
+    # rest is contours, where a rounded HP edge and a hard LP edge land one
+    # pixel apart. Measured on a gate valve: 2.64 total, 0.93 smooth, 1.76 of
+    # the 2.64 on internal edges. `ok` is NOT changed by this breakdown: it
+    # tells you what to fix, it does not move the threshold.
+    both = (px["hp"][..., 3] > 0.5) & (px["lp"][..., 3] > 0.5)
+    for _ in range(3):
+        both = both & np.roll(both, 1, 0) & np.roll(both, -1, 0) & np.roll(both, 1, 1) & np.roll(both, -1, 1)
+    lum = px["hp"][..., :3].mean(-1)
+    grad = np.abs(np.roll(lum, 1, 0) - lum) + np.abs(np.roll(lum, 1, 1) - lum)
+    smooth = both & (grad < 0.02)
     return {"ok": mean < 2.0, "evaluated": int(covered.sum()), "mean_diff_255": round(mean, 3),
             "p99_diff_255": round(float(np.percentile(d, 99)), 2),
-            "max_diff_255": round(float(d.max()), 1)}
+            "max_diff_255": round(float(d.max()), 1),
+            "mean_smooth_255": round(float(full[smooth].mean()), 3) if smooth.any() else None,
+            "smooth_px": int(smooth.sum())}
 
 
 def surface_distance(a, b, near_mm=1.0):
@@ -1261,3 +1277,120 @@ def surface_distance(a, b, near_mm=1.0):
         return {"ok": False, "evaluated": 0}
     return {"ok": behind == 0, "evaluated": len(oa.data.vertices),
             "min_mm": round(best * 1000, 3), "vertices_behind": behind}
+
+
+def light_leaks(names, point, allowed=(), n=4000):
+    """Leak test for a cavity. Casts `n` rays from `point` (inside the cavity)
+    in every direction against the joined set `names`; a ray that hits nothing
+    escaped through an opening. `allowed` = [(direction, half_angle_deg), ...]
+    lists the openings that are SUPPOSED to exist (the two ports of a valve).
+
+    Real case: the internal chamber cut into a valve bonnet broke through the
+    wall of the dome where the dome narrows. The part was still watertight
+    (the hole had walls), had no degenerate faces and crossed nothing; a
+    render showed a black slot in the casting. On that bonnet this returns 41
+    escaping rays; on the corrected one, 0.
+
+    Choose `point` in the EMPTY space of the cavity. The first version of the
+    probe sat on the stem axis, inside the stem: every ray hit the stem and
+    the gate reported 0 escapes on the defective part. Validate the probe on
+    a known-bad case, or at least confirm `allowed=()` reports escapes through
+    the openings you know are there."""
+    import math
+    from mathutils import Vector
+    from mathutils.bvhtree import BVHTree
+    bm = bmesh.new()
+    for name in names:
+        ob = bpy.data.objects[name]
+        tmp = bmesh.new()
+        tmp.from_mesh(ob.data)
+        tmp.transform(ob.matrix_world)
+        me = bpy.data.meshes.new("_leak")
+        tmp.to_mesh(me)
+        tmp.free()
+        bm.from_mesh(me)
+        bpy.data.meshes.remove(me)
+    tree = BVHTree.FromBMesh(bm)
+    bm.free()
+    p = Vector(point)
+    cones = [(Vector(d).normalized(), math.cos(math.radians(a))) for d, a in allowed]
+    escapes, total = 0, Vector()
+    golden = math.pi * (3 - math.sqrt(5))
+    for i in range(n):
+        z = 1 - 2 * (i + 0.5) / n
+        r = math.sqrt(1 - z * z)
+        d = Vector((r * math.cos(golden * i), r * math.sin(golden * i), z))
+        if tree.ray_cast(p, d)[0] is None and not any(d.dot(c) >= cosine for c, cosine in cones):
+            escapes += 1
+            total += d
+    return {"ok": bool(names) and escapes == 0, "evaluated": n, "escapes": escapes,
+            "mean_direction": [round(v, 2) for v in (total / escapes)] if escapes else None}
+
+
+def collection_fingerprint(collection):
+    """{object name: (vertices, faces)} for every mesh in `collection`,
+    recursively. Take it of the HIGH POLY before building the low poly and
+    compare afterwards with `fingerprint_unchanged`."""
+    return {o.name: (len(o.data.vertices), len(o.data.polygons))
+            for o in bpy.data.collections[collection].all_objects if o.type == "MESH"}
+
+
+def fingerprint_unchanged(collection, before):
+    """Nothing done to the low poly may touch the high poly.
+
+    Real case: a mesh helper reused an existing object when one with the
+    requested name already existed. Building the low poly asked for parts
+    named like the high poly's nuts, washers, gaskets and seats; the helper
+    replaced THEIR meshes with low-poly ones and the join step swept them
+    into the LP object. The high poly went from 31 parts to 13 with no error
+    anywhere. It surfaced only as a 1.4 % silhouette failure, traced with a
+    difference image to nuts missing from the HP pass."""
+    now = collection_fingerprint(collection)
+    missing = sorted(set(before) - set(now))
+    added = sorted(set(now) - set(before))
+    changed = sorted(n for n in before if n in now and before[n] != now[n])
+    return {"ok": bool(before) and not (missing or added or changed), "evaluated": len(before),
+            "missing": missing, "added": added, "changed": changed}
+
+
+def decals_visible(decals, carrier, axis="Y"):
+    """Every vertex of every decal must lie IN FRONT of its carrier, seen from
+    outside along `axis`. For each vertex a ray is cast from outside toward
+    the carrier; if the carrier is hit before the ray reaches the decal, that
+    vertex is buried. The side each vertex is viewed from is the sign of its
+    own coordinate on `axis` (front decals at -Y, back decals at +Y).
+
+    Real case: legends laid out on a recessed instrument panel. The flat was
+    narrower than its cutter — a lip of the housing started 4.5 mm inside the
+    nominal edge — and "HOLD" rendered as "OLD", "V=" as "/=". The text did
+    not float (a seating check passes) and did not cross (an intersection
+    check passes on an open mesh that it skips anyway): it was underneath.
+
+    Returns {decal: (buried, total)} for the ones with buried vertices."""
+    from mathutils import Vector
+    from mathutils.bvhtree import BVHTree
+    i = "XYZ".index(axis)
+    ob = bpy.data.objects[carrier]
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bm.transform(ob.matrix_world)
+    tree = BVHTree.FromBMesh(bm)
+    bm.free()
+    buried, evaluated = {}, 0
+    for name in decals:
+        d = bpy.data.objects[name]
+        n = 0
+        for v in d.data.vertices:
+            p = d.matrix_world @ v.co
+            side = -1.0 if p[i] < 0 else 1.0
+            origin = Vector(p)
+            origin[i] = side * 10.0
+            direction = Vector((0, 0, 0))
+            direction[i] = -side
+            hit = tree.ray_cast(origin, direction)
+            if hit[0] is not None and (hit[0][i] - p[i]) * side > 1e-5:
+                n += 1
+        evaluated += len(d.data.vertices)
+        if n:
+            buried[name] = (n, len(d.data.vertices))
+    return {"ok": evaluated > 0 and not buried, "evaluated": evaluated, "buried": buried}

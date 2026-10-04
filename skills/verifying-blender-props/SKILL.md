@@ -48,12 +48,17 @@ Use `verifications.py` (next to this file). Every function returns a dict.
 | Machined detail | through-hole ray test, **one ray per hole from each side it opens on**, plus a ray along the hole axis that must cross the whole part | every ray passes; a ray offset past the hole's half-width is blocked. Real case: six vent slots cut by boolean in a hard hat. The three on +X were holes; the three on −X came out as bars ADDED to the shell. The ray test fired from +X only and read a hit on the far wall as "passed through" — six green slots, three of them solid |
 | Any | mesh bounding box (from `mesh.vertices`) against the expected envelope | within tolerance, per axis and per sign. **Measure the mesh, not the function that generated it.** Same case: dimensions were read off the generator's arrays, so the three bars — sticking out to −130 mm on a part that ends at −120.5 — were invisible to the dimension gate too. A render found them |
 | Assembly | `surface_distance(a, b)` when `pairwise_intersections` returns `disagreement: True` | `vertices_behind == 0` and `min_mm` equal to the designed gap. Settles whether the disagreement is a grazing ray or a contained part, with a measurement that does not use rays |
+| Hollow parts | `light_leaks(names, point, allowed)` on every cavity cut into a part | `escapes == 0` outside the openings that are supposed to exist. A boolean cavity can break through a wall and leave a part that is still watertight, with no degenerate faces and no crossings. **Validate the probe point**: it must sit in the empty space of the cavity — a probe on a shaft axis hits the shaft in every direction and reports 0 on the defective part |
+| Independent check | one published figure that did NOT fix any dimension, checked against the finished model: mass from enclosed volume × density, a go/no-go on a published capacity | within the tolerance declared in `Specs.md` before modelling. Real cases: a gate valve modelled from its flange dimensions weighed 12.0 kg against 10.8 kg published. A clamp meter built to its published envelope would not pass the 30 mm conductor its data sheet promises — the neck joining body and jaw intruded into the window; no geometry gate could know that |
 | Machined parts | `shading(part)` | `sharp_edges > 0` if the part has hard edges |
 | Fitted parts | `seating_gap(cover, base)` | `seated == True`. A part whose job is to sit ON a surface — press-on nail, decal shell, hub cap, trim panel, badge — fails in TWO directions, and every other clearance gate here only asks whether the gap is positive. **Floating is a positive gap.** Measured: a nail hovering 0.945 mm min / 1.558 mm median above the surface it was glued to passed `pairwise_intersections` clean and every positive-clearance check. The ceiling applies to the LOW percentile, not the minimum: a fitted part only contacts over part of its area. `seated is None` means inconclusive — check `contact_pct` and whether `base` was over-scoped |
+| Retopo | `collection_fingerprint(hp)` before building the LP, `fingerprint_unchanged(hp, before)` after | `ok == True`. Building the low poly must not touch the high poly. A helper that reused objects by name moved 18 HP parts into the LP with no error |
+| Retopo | `silhouette_hp_vs_lp(...)` on the FINAL low poly | if parts that share UVs are replicated after unwrapping, replicate first and measure after. Both collections must be render-visible: with the LP hidden the gate returns `lp_coverage_px: 0` and 100 % — a false alarm, not a false pass, but it tells you nothing. When it fails, **render the two alpha masks and paint the difference** before touching resolution: a 1.9 % failure that survived doubling the triangle count was three bolts the LP did not have yet |
 | Retopo | `silhouette_hp_vs_lp(...)` | `differing_px_pct < 1`. **Subdivision is not automatically a valid HP.** Catmull-Clark contracts, and on a thin shell with a sharp tip it contracts a lot: measured 7.1–8.3 % silhouette deviation between a nail and its own Subsurf, seven times the threshold. Baking normals from that would have injected error rather than removed it. If the LP already IS the design surface — analytic, no high-frequency detail above it — say so and ship a neutral normal map instead of a fake bake |
 | UV | `uv_overlap(set)` | `overlapping_cells == 0`, `degenerate_uv_faces ≈ 0`, **and** `coverage_pct >= 40` — zero overlap and 0 % density deviation say nothing about how much of the atlas is actually used; a set measured clean on both was still only 5.79 % of the atlas. Run on one representative per **UV-sharing group**, not per object and not merely per datablock. Deduping by `obj.data.name` handles linked duplicates, but it is not sufficient: parts can hold *distinct* datablocks that deliberately share the same UV space — mirrored halves pointing at one atlas, tiled modules, a left and right hand meant to use a single texture. Measured on a 10-nail set where every object had its own datablock and the mirrored pairs shared UVs by design: one hand alone reported **348** overlapping cells with `max_layers` 48, all of them a deliberate shared patch; the full ten reported **446,564** with `max_layers` 96. Nothing was wrong. Decide which parts are meant to share, run the gate on one of each, and write down why |
 | UV | `uv_density(set)` | `deviation_pct < 1` within each set, on unique mesh datablocks (see row above — same linked-duplicate trap applies) |
-| Bake | `bake_fidelity(col_hp, col_lp, camera, out_dir)` | `mean_diff_255 < 2`. Renders HP and baked LP from the same camera and lights |
+| Bake | `bake_fidelity(col_hp, col_lp, camera, out_dir)` | `mean_diff_255 < 2`. Renders HP and baked LP from the same camera and lights. When it fails read `mean_smooth_255`: it separates what the normal map got wrong (smooth areas) from contours landing a pixel apart. It does not move the threshold; it says where to look. Delete the in-memory bake images before building the final material, or the render uses the previous bake's pixels and the number does not move |
+| Delivery renders | `decals_visible(decals, carrier)` | `ok == True`: for every decal vertex, the first hit on the carrier seen from outside is BEHIND the decal. Real case: dial legends on an instrument panel were placed on a recessed flat that was narrower than its cutter (a lip of the housing started 4.5 mm inside the nominal edge); "HOLD" rendered as "OLD". The text was not floating and not crossing — it was buried |
 | Bake | `texture_files(dir, expect)` right after the bake | `ok == True`: every map on disk, none 0×0, expected resolution. A bake image exists in the session before it exists as a file |
 | Export | `fbx_roundtrip(path, expect_tris, …)` | `ok == True`: re-imported triangle count, UV layers, material names and dimensions match what was meant to ship |
 | Save / reload | re-open the file (or `wm.read_homefile` + reload) and check that every datablock the pipeline depends on still exists | targeted datablocks present after a real save-and-reload, not just in the session that created them — Blender purges unused-user datablocks on save. Anything intentionally reserved for later (e.g. a material created empty, to be filled next session) needs `use_fake_user = True`. This is also the gate that catches work done outside a build script: hardware rebuilt from a script lost the UV a manual `smart_project` had given it, and nothing else noticed |
@@ -311,6 +316,37 @@ Things that survive good technical judgement:
   unreliable. Deriving that direction from the solid's centroid instead put
   every bead and spike **inside** the part on a curved surface: 92 of 156
   vertices on one.
+- **Cut first, remesh after.** Boolean cuts on a finished voxel-remeshed skin
+  leave slivers all along every cut (151 faces over 100:1, up to 36,769:1,
+  and 4 open edges after welding). Cast coarse, cut, then run the fine
+  remesh: the mesh comes back uniform and watertight, and the cut edges get
+  a half-millimetre radius, which is what a deburred part looks like.
+- The `MANIFOLD` boolean solver did 23 cuts on a 280k-face mesh in 0.7 s
+  where `EXACT` took 111 s on the same job. It needs clean closed inputs:
+  with cutters whose caps are coplanar with the target it left 49 open
+  edges on a dial that `EXACT` cut correctly. Check `manifold` after it.
+- **Never reuse an object by name inside a build helper.** It replaced the
+  first flange of a valve with the second, and later moved 18 high-poly
+  parts into the low poly. Always create; clear the collection yourself.
+- The `Ambient Occlusion` SHADER NODE sees the bake target. A low poly lying
+  tenths of a millimetre from the high poly shows up as dirt along every one
+  of its edges (fidelity 5.29/255 on a valve). Turning off the target's ray
+  visibility flags fixes the AO PASS but not the node, which ignores them:
+  set the node's `only_local` for the bake.
+- Selected-to-active baking is CPU-bound, not GPU: about three minutes per
+  pass at 4096² against 1.6M faces, the same with 8 samples or 24, with the
+  GPU idle at 2 %. Persistent data does not help. Bake fewer passes
+  (roughness and metallic through one emission pass) and bake AO at half
+  resolution.
+- A flat recess cut into a curved housing is narrower than its cutter: where
+  the housing stands only a few tenths proud of the cut plane the remesh
+  leaves a sloping lip. Measure the flat with rays before laying out
+  anything on it.
+- Triangulating the n-gons a boolean leaves on flat faces gives fans of long
+  triangles. `bmesh.ops.beautify_fill` restricted to edges between coplanar
+  faces (dihedral under 0.5°) re-triangulates them without moving the
+  surface. Do not dissolve coplanar faces first: that plants T-vertices and
+  the next triangulation produces needles of three collinear vertices.
 - Offsetting a surface that carries relief folds it wherever the relief's
   radius of curvature is smaller than the offset. A 2.5 mm inward solidify
   over a 3 mm raised crest with a 4 mm blend left 145 sliver faces up to
