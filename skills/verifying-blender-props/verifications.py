@@ -1353,12 +1353,18 @@ def fingerprint_unchanged(collection, before):
             "missing": missing, "added": added, "changed": changed}
 
 
-def decals_visible(decals, carrier, axis="Y"):
+def decals_visible(decals, carrier, axis="Y", side=None):
     """Every vertex of every decal must lie IN FRONT of its carrier, seen from
     outside along `axis`. For each vertex a ray is cast from outside toward
     the carrier; if the carrier is hit before the ray reaches the decal, that
     vertex is buried. The side each vertex is viewed from is the sign of its
-    own coordinate on `axis` (front decals at -Y, back decals at +Y).
+    own coordinate on `axis` (front decals at -Y, back decals at +Y), unless
+    `side` (-1 or +1) forces it for all of them.
+
+    `side` exists because the sign rule is wrong for any face that is not on
+    the outer side of the origin: a lamp housing with its FRONT face at
+    y = +20 mm was reported as 448 of 448 vertices buried while the render
+    showed the text perfectly.
 
     Real case: legends laid out on a recessed instrument panel. The flat was
     narrower than its cutter — a lip of the housing started 4.5 mm inside the
@@ -1376,19 +1382,20 @@ def decals_visible(decals, carrier, axis="Y"):
     bm.transform(ob.matrix_world)
     tree = BVHTree.FromBMesh(bm)
     bm.free()
+    forced = None if side is None else (1.0 if side > 0 else -1.0)
     buried, evaluated = {}, 0
     for name in decals:
         d = bpy.data.objects[name]
         n = 0
         for v in d.data.vertices:
             p = d.matrix_world @ v.co
-            side = -1.0 if p[i] < 0 else 1.0
+            s = forced if forced is not None else (-1.0 if p[i] < 0 else 1.0)
             origin = Vector(p)
-            origin[i] = side * 10.0
+            origin[i] = s * 10.0
             direction = Vector((0, 0, 0))
-            direction[i] = -side
+            direction[i] = -s
             hit = tree.ray_cast(origin, direction)
-            if hit[0] is not None and (hit[0][i] - p[i]) * side > 1e-5:
+            if hit[0] is not None and (hit[0][i] - p[i]) * s > 1e-5:
                 n += 1
         evaluated += len(d.data.vertices)
         if n:

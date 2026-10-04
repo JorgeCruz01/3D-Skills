@@ -333,11 +333,18 @@ Things that survive good technical judgement:
   of its edges (fidelity 5.29/255 on a valve). Turning off the target's ray
   visibility flags fixes the AO PASS but not the node, which ignores them:
   set the node's `only_local` for the bake.
-- Selected-to-active baking is CPU-bound, not GPU: about three minutes per
-  pass at 4096² against 1.6M faces, the same with 8 samples or 24, with the
-  GPU idle at 2 %. Persistent data does not help. Bake fewer passes
-  (roughness and metallic through one emission pass) and bake AO at half
-  resolution.
+- **Selected-to-active bake time scales with the NUMBER of source objects, not
+  with their faces.** Measured on four props at 4096², four passes: 10
+  objects / 0.92M faces, 287 s; 22 / 1.3M, 448 s; 34 / 1.6M, 958 s; 69 /
+  1.06M, 1,036 s — the one with the fewest faces of the last three was the
+  slowest. Baking from a temporary JOINED copy of the high poly (23 objects,
+  1.7M faces, as one) took 52 s in total, fidelity 0.98/255. Join a copy,
+  hide the originals from render, bake, delete the copy. It had been read as
+  "CPU-bound, three minutes per pass, GPU idle" for five props; fewer passes
+  and half-resolution AO were treating the symptom.
+- Joining the high poly changes what an `Ambient Occlusion` node with
+  `only_local` sees: parts in contact now darken each other. That is usually
+  wanted; it is still a change, so compare `bake_fidelity` before and after.
 - A flat recess cut into a curved housing is narrower than its cutter: where
   the housing stands only a few tenths proud of the cut plane the remesh
   leaves a sloping lip. Measure the flat with rays before laying out
@@ -374,3 +381,52 @@ Things that survive good technical judgement:
   triangulates them. A global merge-by-distance is not the fix: on the same
   mesh the legitimate tip had 0.024 mm edges and would have collapsed. Merge
   only within a radius of the cut.
+- **Solids to be unioned must cross frankly — never tangent, never with
+  coplanar caps.** A hemispherical end cap of the same radius as its cylinder,
+  plus a cone butted against it, left 78 sliver faces (up to 2,000,000:1) in a
+  low-poly union. Make the cap slightly smaller and push the cone 5 mm in.
+  Stepped housings get a different width per step for the same reason.
+- Cleaning up after a boolean by merge-by-distance pinches the mesh: it fuses
+  any two nearby vertices whether or not they share an edge (2 non-manifold
+  edges at 0.3 mm on a drill housing). Collapse SHORT EDGES instead
+  (`dissolve_degenerate` after triangulating): same part, watertight and no
+  degenerate faces at 0.7 mm. The right distance is per part — one chassis
+  was watertight at 1.4 mm and at neither 0.8 nor 2.0 — and never larger than
+  the finest recess that must survive (0.6 mm closed 0.8 mm-deep fins).
+- Long thin parts need intermediate vertices, not a better triangulation. A
+  130 × 1 mm rail edge, a 34 mm shaft with 0.6 mm facets, a 1150 × 3 mm fork:
+  100:1 to 1300:1 however the faces are flipped. Cut them with planes every
+  few centimetres — and then collapse, because cutting alone made it worse
+  (108 degenerate faces before, 514 after).
+- One UV space per texture set. A glass globe unwrapped together with its
+  metal body got a corner of the atlas of a set that was all its own. Unwrap
+  each material's geometry as a separate object, then join.
+- A torus has no boundary and the unwrapper does not know where to open it
+  ("Unwrap failed to solve 1 of 62 islands", with `uv_overlap` still reading
+  0). Mark its inner equator as a seam. Two wire rings unioned by boolean
+  where they cross make a genus-3 surface: keep them as two shells in one
+  object.
+- Rounded edges defeat seams-by-angle: a sheet-metal fork with 6 mm corner
+  radii in three 30° segments unwrapped as ONE island rolled around itself
+  (1,486 overlapping cells). Add seams by face orientation class (up / side /
+  down against a reference axis) instead of lowering the angle, which only
+  shreds the island.
+- A fallback that adds seams "on every edge" to any self-overlapping island
+  hides the real problem and costs coverage: it turned a handle loop into
+  2,810 single-triangle islands and the atlas dropped to 27 %. Print what the
+  fallback did; if it reached the last threshold, the island needed a seam
+  you can name.
+- A screw at the bottom of its well is invisible. Heads 4 mm down a 7 mm
+  bore rendered as black holes; at 1.5 mm they read as screws.
+- **Check the independent figure BEFORE the low poly.** Three props in a row
+  were corrected by it and by nothing else: a 30 mm conductor that did not
+  pass through a clamp jaw built to its published envelope, a lantern fount
+  holding 414 ml against 296–340, a pivot pin centred on the rollers
+  (192.5 mm) instead of the fork (195 mm) that only a BVH overlap located.
+- `decals_visible` picks the viewing side from the SIGN of each vertex's
+  coordinate. A lamp housing whose front face sits at y = +20 mm was reported
+  as 448 of 448 vertices buried while the render showed the text. Pass `side`
+  explicitly when the carrier's face is not on the outer side of the origin.
+- An object joined from parts inherits the first part's `hide_render`. A
+  silhouette comparison then read 100 % different / −100 % area: the low poly
+  was simply not rendering. A −100 % area delta is never a geometry result.
