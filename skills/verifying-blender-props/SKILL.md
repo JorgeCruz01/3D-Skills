@@ -472,6 +472,33 @@ Things that survive good technical judgement:
   actuator that hit the rocker at -15 degrees of bogie travel; two rounds of
   shifting tubes left 49 crossings. Real rocker-bogies steer only the corner
   wheels: removing the actuator gave 0.
+- "It looks flat-shaded" is not always a shading flag. Eighteen props had
+  smooth-by-angle on every curved face, high and low poly, and six were
+  still rejected as hard: polygonal side profiles, chamfers of one to three
+  segments and 1-2 mm fillets between primitives read as facets. Measure the
+  flag first (it takes a minute), then fix the design: spline profiles,
+  boxes with all twelve edges rounded, fillets of 3-7 mm on castings, and
+  machined volumes joined AFTER the casting is smoothed so ways and slides
+  stay crisp.
+- A rounded-box corner radius larger than half the side makes the profile
+  cross itself and the box swells: a 3.4 mm latch with r = 2.2 came out
+  1.8 mm wider per side and sank into the frame. Clamp the radius in the
+  tool, not in every call.
+- An edge fillet offset along the contour normal self-intersects where the
+  fillet approaches the contour's own radius of curvature: a 10 mm edge on
+  a 15 mm corner left non-manifold edges that no weld tolerance removed.
+  Keep contour radii at 2.5x the edge fillet or more.
+- A closed ring of faces (the rounded rim around a deck) unwraps as an
+  annulus or shatters: atlas coverage fell from 59 % to 10.7 % when a flat
+  deck gained a rounded edge. Separate the rim from the flat face with a
+  tighter orientation threshold, and expect to lose coverage anyway.
+- Opening a .blend and exporting in the same script fails with a stale
+  context (`Context has no attribute selected_objects`; `object.join`
+  poll fails). Open in one call, operate in the next.
+- Read the silhouette before the detail. A cordless drill with a round
+  tube head and long rear vents was read as a heat gun, and a revolver
+  built without a reference was rejected twice. One unmistakable feature
+  (a bit in the chuck) did more than every fillet.
 - An object joined from parts inherits the first part's `hide_render`. A
   silhouette comparison then read 100 % different / −100 % area: the low poly
   was simply not rendering. A −100 % area delta is never a geometry result.
