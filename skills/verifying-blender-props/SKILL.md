@@ -56,6 +56,7 @@ Use `verifications.py` (next to this file). Every function returns a dict.
 | Retopo | `silhouette_hp_vs_lp(...)` on the FINAL low poly | if parts that share UVs are replicated after unwrapping, replicate first and measure after. Both collections must be render-visible: with the LP hidden the gate returns `lp_coverage_px: 0` and 100 % — a false alarm, not a false pass, but it tells you nothing. When it fails, **render the two alpha masks and paint the difference** before touching resolution: a 1.9 % failure that survived doubling the triangle count was three bolts the LP did not have yet |
 | Retopo | `silhouette_hp_vs_lp(...)` | `differing_px_pct < 1`. **Subdivision is not automatically a valid HP.** Catmull-Clark contracts, and on a thin shell with a sharp tip it contracts a lot: measured 7.1–8.3 % silhouette deviation between a nail and its own Subsurf, seven times the threshold. Baking normals from that would have injected error rather than removed it. If the LP already IS the design surface — analytic, no high-frequency detail above it — say so and ship a neutral normal map instead of a fake bake |
 | UV | `uv_overlap(set)` | `overlapping_cells == 0`, `degenerate_uv_faces ≈ 0`, **and** `coverage_pct >= 40` — zero overlap and 0 % density deviation say nothing about how much of the atlas is actually used; a set measured clean on both was still only 5.79 % of the atlas. Run on one representative per **UV-sharing group**, not per object and not merely per datablock. Deduping by `obj.data.name` handles linked duplicates, but it is not sufficient: parts can hold *distinct* datablocks that deliberately share the same UV space — mirrored halves pointing at one atlas, tiled modules, a left and right hand meant to use a single texture. Measured on a 10-nail set where every object had its own datablock and the mirrored pairs shared UVs by design: one hand alone reported **348** overlapping cells with `max_layers` 48, all of them a deliberate shared patch; the full ten reported **446,564** with `max_layers` 96. Nothing was wrong. Decide which parts are meant to share, run the gate on one of each, and write down why |
+| UV | `uv_null_faces(objects)` | `ok == True`: no face with area on the model and none in UV space. `uv_overlap` cannot see these — a collapsed island overlaps nothing. 582 faces on a welded tube cage passed every other UV gate |
 | UV | `uv_density(set)` | `deviation_pct < 1` within each set, on unique mesh datablocks (see row above — same linked-duplicate trap applies) |
 | Bake | `bake_fidelity(col_hp, col_lp, camera, out_dir)` | `mean_diff_255 < 2`. Renders HP and baked LP from the same camera and lights. When it fails read `mean_smooth_255`: it separates what the normal map got wrong (smooth areas) from contours landing a pixel apart. It does not move the threshold; it says where to look. Delete the in-memory bake images before building the final material, or the render uses the previous bake's pixels and the number does not move |
 | Delivery renders | `decals_visible(decals, carrier)` | `ok == True`: for every decal vertex, the first hit on the carrier seen from outside is BEHIND the decal. Real case: dial legends on an instrument panel were placed on a recessed flat that was narrower than its cutter (a lip of the housing started 4.5 mm inside the nominal edge); "HOLD" rendered as "OLD". The text was not floating and not crossing — it was buried |
@@ -427,6 +428,50 @@ Things that survive good technical judgement:
   coordinate. A lamp housing whose front face sits at y = +20 mm was reported
   as 448 of 448 vertices buried while the render showed the text. Pass `side`
   explicitly when the carrier's face is not on the outer side of the origin.
+- **`uv_overlap` reading 0 does not mean every face has UVs.** An island the
+  unwrapper cannot solve keeps its UVs collapsed to a point: nothing overlaps,
+  nothing bakes. 582 faces on a generator's welded tube cage; the only trace
+  was a Blender warning in stdout. Run `uv_null_faces` next to `uv_overlap`.
+  The cure for a welded frame is to cut it into rings at regular planes and
+  let each segment open as a cylinder.
+- When islands self-overlap, split them FIRST by dominant normal axis (six
+  box-projection charts) and only then by dihedral angle. Going straight to
+  angle thresholds ends at "every edge": coverage went 40.8 % → 66.0 % on a
+  revolver and stopped missing the 65 % target on the props that followed.
+- Two large flat faces of the same size (top and bottom of a base plate)
+  cannot share a square atlas above ~50 %. Split each along a mid plane or
+  accept the density: a 660 × 600 mm plate set sat at 2.07 px/mm against a
+  2.5 floor.
+- An edge-wear mask driven by `Pointiness` reads a lathe-turned exact mesh as
+  nearly all edge: lens barrels painted black came out brass. Voxel-remeshed
+  skins and exact revolved parts need different wear strengths.
+- Deep fins baked onto a smooth cylinder are a normal map of something that
+  self-shadows. Side by side the low poly looks right; `bake_fidelity` read
+  5.61/255 on a radial engine against 1–2 on everything without fins. Report
+  the number; do not move the threshold, and do not blame the bake.
+- Instancing costs fidelity by construction: six replicas carry the first
+  one's baked dirt while each high-poly original has its own. Say so next to
+  the figure.
+- A posed mechanism is not verified by its pose. Rebuild it in other poses
+  (zero, extended, folded, twisted) and intersect: a robot arm passed five;
+  and measure link lengths on the ROTATED mesh brought back with the inverse
+  chain matrix — a wrongly composed chain cannot produce 349.96 and 351.03.
+- A box whose half-width equals the radius of a cylinder it meets is tangent
+  to it along a line: 9 open edges in a low-poly union, on a prop whose own
+  plan already said "volumes must cross frankly". Check radii against
+  half-widths when writing the dimensions, not after the union fails.
+- A label that states a measured quantity must state what the model
+  measures. A generator tank sized by what fit above the engine held 22.2 L;
+  its decal said "24 L" from the data sheet until the volume was measured.
+- Re-run `decals_visible` after ANY change to the carrier, not only after
+  moving the decal. A deck label passed; a second equipment box added later
+  for detail buried 88 of its 206 vertices. The gate caught it only because
+  it ran again with the rebuild.
+- When a moving part collides through its range, ask first whether the
+  colliding feature belongs there. A rover's middle wheel carried a steering
+  actuator that hit the rocker at -15 degrees of bogie travel; two rounds of
+  shifting tubes left 49 crossings. Real rocker-bogies steer only the corner
+  wheels: removing the actuator gave 0.
 - An object joined from parts inherits the first part's `hide_render`. A
   silhouette comparison then read 100 % different / −100 % area: the low poly
   was simply not rendering. A −100 % area delta is never a geometry result.

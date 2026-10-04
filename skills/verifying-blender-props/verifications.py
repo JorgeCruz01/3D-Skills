@@ -1401,3 +1401,42 @@ def decals_visible(decals, carrier, axis="Y", side=None):
         if n:
             buried[name] = (n, len(d.data.vertices))
     return {"ok": evaluated > 0 and not buried, "evaluated": evaluated, "buried": buried}
+
+
+def uv_null_faces(object_names, uv_layer=None):
+    """Faces that have area on the model and none in UV space.
+
+    An island the unwrapper cannot solve (a closed surface with no boundary: a
+    welded tube frame, a torus) is left with its UVs collapsed to a point.
+    `uv_overlap` keeps reading 0 — there is nothing to overlap — and the bake
+    writes nothing there. On a generator's tube cage it was 582 faces; the only
+    trace was a Blender warning in stdout ("Unwrap failed to solve 1 of 976
+    island(s)"), which no gate was reading.
+
+    Returns {"ok", "evaluated", "null": {object: count}}; refuses to pass when
+    it evaluated no faces or an object has no UV layer."""
+    null, evaluated, missing = {}, 0, []
+    for name in object_names:
+        ob = bpy.data.objects[name]
+        bm = bmesh.new()
+        bm.from_mesh(ob.data)
+        layer = bm.loops.layers.uv.get(uv_layer) if uv_layer else bm.loops.layers.uv.active
+        if layer is None:
+            missing.append(name)
+            bm.free()
+            continue
+        n = 0
+        for f in bm.faces:
+            if f.calc_area() <= 1e-8:
+                continue
+            uvs = [l[layer].uv for l in f.loops]
+            area = 0.0
+            for k in range(1, len(uvs) - 1):
+                area += abs((uvs[k] - uvs[0]).cross(uvs[k + 1] - uvs[0])) / 2
+            if area < 1e-12:
+                n += 1
+        evaluated += len(bm.faces)
+        bm.free()
+        if n:
+            null[name] = n
+    return {"ok": evaluated > 0 and not null and not missing, "evaluated": evaluated, "null": null, "no_uv_layer": missing}
