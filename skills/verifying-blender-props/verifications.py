@@ -1079,3 +1079,185 @@ def datablocks_on_disk(path, expect_objects=(), expect_meshes=()):
             "objects": found.get("objects", []),
             "meshes": found.get("meshes", []),
             "missing": missing}
+
+
+def texture_files(directory, expect):
+    """Checks that every delivered map exists ON DISK, is not 0x0 and has the
+    expected resolution. `expect` = {filename: (width, height)}.
+
+    A bake target lives in the session until it is saved. Real case: a shared
+    working .blend held twelve bake images (BaseColor, Normal, ORM for four
+    props) that reported size 0x0 in `bpy.data.images` -- the datablocks were
+    there, the pixels never reached a file. Nothing that inspects the scene
+    notices; only reading the file back does.
+
+    Refuses to pass when it evaluated nothing."""
+    import os
+    missing, zero, wrong = [], [], {}
+    for name, size in expect.items():
+        path = os.path.join(directory, name)
+        if not os.path.exists(path) or os.path.getsize(path) == 0:
+            missing.append(name)
+            continue
+        img = bpy.data.images.load(path, check_existing=False)
+        got = (img.size[0], img.size[1])
+        bpy.data.images.remove(img)
+        if 0 in got:
+            zero.append(name)
+        elif got != tuple(size):
+            wrong[name] = got
+    return {"ok": bool(expect) and not (missing or zero or wrong), "evaluated": len(expect),
+            "missing": missing, "zero_sized": zero, "wrong_size": wrong}
+
+
+def fbx_roundtrip(path, expect_tris, expect_uv_layers=1, expect_materials=None,
+                  expect_dims_mm=None, tol_mm=0.5):
+    """Re-imports an exported FBX into a throwaway scene and compares it with
+    what was meant to be exported: triangle count, UV layer count, material
+    names and overall dimensions. Everything else in this file measures the
+    session; the client receives the FBX.
+
+    `expect_tris` and `expect_dims_mm` are for the whole exported set. The
+    imported objects and the temporary scene are removed before returning."""
+    import os
+    if not os.path.exists(path):
+        return {"ok": False, "error": "file does not exist", "path": path}
+    previous = bpy.context.window.scene
+    tmp = bpy.data.scenes.new("_fbx_check")
+    bpy.context.window.scene = tmp
+    before = set(bpy.data.objects)
+    diffs = {}
+    try:
+        bpy.ops.import_scene.fbx(filepath=path)
+        meshes = [o for o in bpy.data.objects if o not in before and o.type == "MESH"]
+        bpy.context.view_layer.update()
+        tris, lo, hi, uvs, mats = 0, [1e9] * 3, [-1e9] * 3, set(), set()
+        for o in meshes:
+            o.data.calc_loop_triangles()
+            tris += len(o.data.loop_triangles)
+            uvs.add(len(o.data.uv_layers))
+            mats |= {s.material.name.split(".")[0] for s in o.material_slots if s.material}
+            for v in o.data.vertices:
+                p = o.matrix_world @ v.co
+                for i in range(3):
+                    lo[i] = min(lo[i], p[i])
+                    hi[i] = max(hi[i], p[i])
+        dims = [round((hi[i] - lo[i]) * 1000, 2) for i in range(3)] if meshes else None
+        if tris != expect_tris:
+            diffs["tris"] = (tris, expect_tris)
+        if uvs != {expect_uv_layers}:
+            diffs["uv_layers"] = (sorted(uvs), expect_uv_layers)
+        if expect_materials is not None and mats != set(expect_materials):
+            diffs["materials"] = (sorted(mats), sorted(expect_materials))
+        if expect_dims_mm is not None and (
+                dims is None or any(abs(a - b) > tol_mm for a, b in zip(dims, expect_dims_mm))):
+            diffs["dims_mm"] = (dims, list(expect_dims_mm))
+        result = {"ok": bool(meshes) and not diffs, "evaluated": len(meshes), "tris": tris,
+                  "uv_layers": sorted(uvs), "materials": sorted(mats), "dims_mm": dims,
+                  "diffs": diffs}
+    finally:
+        for o in [o for o in bpy.data.objects if o not in before]:
+            d = o.data
+            bpy.data.objects.remove(o)
+            if d and d.users == 0 and isinstance(d, bpy.types.Mesh):
+                bpy.data.meshes.remove(d)
+        bpy.context.window.scene = previous
+        bpy.data.scenes.remove(tmp)
+    return result
+
+
+def bake_fidelity(col_hp, col_lp, camera, out_dir, res=(1024, 1024), samples=48, hide=()):
+    """Renders the HP and the baked LP from the same camera under the same
+    lights and returns their mean and 99th-percentile difference in 0-255
+    levels, over the pixels either of them covers. Threshold: mean < 2.
+
+    This is the gate the table always listed ("compare LP+normal render
+    against HP") without a function behind it. Measured on a hard hat: 1.25
+    mean, 21 at p99 -- the p99 sits on the silhouette, where an 11k-triangle
+    LP and a 574k-face HP legitimately differ by a pixel.
+
+    Collections are passed by name; `hide` lists objects to keep out of both
+    renders (backdrop, display stand). Render visibility is restored."""
+    import os
+    import numpy as np
+    sc = bpy.context.scene
+    state = (sc.camera, sc.render.resolution_x, sc.render.resolution_y, sc.cycles.samples,
+             sc.render.filepath, sc.render.film_transparent,
+             {o.name: o.hide_render for o in bpy.data.objects},
+             sc.render.image_settings.file_format, sc.render.image_settings.color_mode)
+    hp = {o.name for o in bpy.data.collections[col_hp].all_objects}
+    lp = {o.name for o in bpy.data.collections[col_lp].all_objects}
+    px = {}
+    try:
+        sc.camera = bpy.data.objects[camera]
+        sc.render.resolution_x, sc.render.resolution_y = res
+        sc.cycles.samples = samples
+        sc.render.film_transparent = True
+        # the coverage mask IS the alpha channel: a scene left on RGB output writes
+        # no alpha, every pixel reads as covered and the background dilutes the
+        # mean. Measured: 0.383 over 1,048,576 px instead of 1.251 over 284,618.
+        sc.render.image_settings.file_format = "PNG"
+        sc.render.image_settings.color_mode = "RGBA"
+        for tag, show, conceal in (("hp", hp, lp), ("lp", lp, hp)):
+            for n in show:
+                bpy.data.objects[n].hide_render = False
+            for n in set(conceal) | set(hide):
+                bpy.data.objects[n].hide_render = True
+            path = os.path.join(out_dir, "_fidelity_%s.png" % tag)
+            sc.render.filepath = path
+            bpy.ops.render.render(write_still=True)
+            img = bpy.data.images.load(path, check_existing=False)
+            a = np.empty(res[0] * res[1] * 4, dtype=np.float32)
+            img.pixels.foreach_get(a)
+            bpy.data.images.remove(img)
+            px[tag] = a.reshape(res[1], res[0], 4)
+    finally:
+        sc.camera, sc.render.resolution_x, sc.render.resolution_y, sc.cycles.samples = state[:4]
+        sc.render.filepath, sc.render.film_transparent = state[4], state[5]
+        sc.render.image_settings.file_format, sc.render.image_settings.color_mode = state[7], state[8]
+        for n, h in state[6].items():
+            if n in bpy.data.objects:
+                bpy.data.objects[n].hide_render = h
+    covered = (px["hp"][..., 3] > 0.5) | (px["lp"][..., 3] > 0.5)
+    if not covered.any():
+        return {"ok": False, "evaluated": 0}
+    d = np.abs(px["hp"][..., :3] - px["lp"][..., :3]).mean(-1)[covered] * 255
+    mean = float(d.mean())
+    return {"ok": mean < 2.0, "evaluated": int(covered.sum()), "mean_diff_255": round(mean, 3),
+            "p99_diff_255": round(float(np.percentile(d, 99)), 2),
+            "max_diff_255": round(float(d.max()), 1)}
+
+
+def surface_distance(a, b, near_mm=1.0):
+    """Minimum distance (mm) from the vertices of `a` to the surface of `b`,
+    plus how many of those vertices sit BEHIND the nearest face of `b`.
+
+    The independent measurement that settles a `disagreement: True` from
+    pairwise_intersections. Real case: one of two mirror-identical wire forks
+    raised `disagreement` against a shell and its twin did not; this returned
+    0.2 mm (the designed seating gap) on both sides with zero vertices behind
+    -- a ray grazing a flat face 0.2 mm away, not a contained part.
+
+    The sign is only counted within `near_mm` of the surface. Far from it the
+    nearest face can simply be facing the other way: counted over all
+    vertices, the same two forks reported 691 "inside" each."""
+    from mathutils.bvhtree import BVHTree
+    ob = bpy.data.objects[b]
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bm.transform(ob.matrix_world)
+    tree = BVHTree.FromBMesh(bm)
+    oa = bpy.data.objects[a]
+    best, behind = None, 0
+    for v in oa.data.vertices:
+        p = oa.matrix_world @ v.co
+        loc, nor, _, dist = tree.find_nearest(p)
+        if (p - loc).dot(nor) < 0 and dist * 1000 < near_mm:
+            behind += 1
+        if best is None or dist < best:
+            best = dist
+    bm.free()
+    if best is None:
+        return {"ok": False, "evaluated": 0}
+    return {"ok": behind == 0, "evaluated": len(oa.data.vertices),
+            "min_mm": round(best * 1000, 3), "vertices_behind": behind}
