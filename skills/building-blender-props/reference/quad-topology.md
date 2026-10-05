@@ -71,7 +71,20 @@ solids (simulated cloth). Decimate the high-poly skin to ~60k triangles first
 the field aligned with the body and the pockets by itself.
 - On a carved stock with a tight concave grip it left crumpled faces; the
   native cage (2) was cleaner. Try (2) first when the part has an axis.
-- `vivos=<degrees>` preserves sharp edges; untested on machined parts.
+- **It does not convert a boolean low poly of a machined casting.** Tried on a
+  gate valve's three cast bodies (`L.union_mecanizada` result → `Q.retopo(o,
+  tris // 2, vivos=30)` → `Q.ajustar` back onto the boolean mesh):
+
+  | Body | Result |
+  |---|---|
+  | valve body, 3,880 tris | QuadriFlow refused it: "the mesh needs to be manifold" (6 open edges after the boolean clean-up). Left untouched |
+  | bonnet, 1,292 tris | 583 quads, but 12 open edges, a torn neck and flange faces up to 6 mm off |
+  | handwheel, 1,836 tris | 907 quads, watertight in appearance (6 open edges reported), 0.19 mm median off, rim loops clean |
+
+  One usable out of three, and that one is a torus with spokes. A flanged,
+  drilled, machined body has to be rebuilt with constructions 1–3. The sixteen
+  props of the first batch are all built on `L.union_mecanizada` (1–4 cast
+  bodies each): there is no automatic path for them.
 - The result has no edges on the real seam planes. Do not bisect it: mark UV
   seams with `L.costura_por_lado(axis, coords)`, the border between faces on
   either side of each plane (a staircase along existing loops).
