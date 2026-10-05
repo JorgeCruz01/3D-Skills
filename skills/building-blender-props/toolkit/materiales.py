@@ -279,6 +279,10 @@ def relieve(nombre, tipo, paso, fondo, caja=None, x_min=None, angulo=30.0):
         # canale de cincha: surcos finos a lo largo de Z y de la horizontal
         k = math.pi / paso
         alto = mat("ABSOLUTE", mat("SINE", mat("MULTIPLY", mat("ADD", mat("ADD", x, y), z), k)))
+    elif tipo == "surcos_y":
+        # canales transversales repetidos a lo largo de Y (agarre de un guardamanos): valle estrecho, meseta ancha
+        k = math.pi / paso
+        alto = mat("POWER", mat("ABSOLUTE", mat("SINE", mat("MULTIPLY", y, k))), 0.35)
     elif tipo == "arruga":
         # arrugado fino de tela: ruido suave del tamano `paso`
         rn = N.new("ShaderNodeTexNoise")

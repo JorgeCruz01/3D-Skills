@@ -132,3 +132,21 @@ rubber and unchamfered battery; a pallet truck's gussets standing out like fins.
 What a photo settled that numbers could not (revolver): how much of the frame
 window the cylinder fills (39.6 → 43.0 mm), that the stocks stand proud of the
 frame (7.4 mm per side at mid height), that the hammer sits at top-strap height.
+
+## 6. Two things a photo gets wrong
+
+Both from a pump-action shotgun, the second prop traced this way.
+
+- **Check that the photo is the object you are building before reading a
+  single point.** The sharpest profile photo available was scaled by overall
+  length and its barrel came out 14 mm across: it was the same model in a
+  smaller gauge. One known diameter, measured on the grid first, tells you.
+- **A photo taken up close magnifies its centre.** Scaled by overall length
+  (978 mm), the length of pull read 395 mm against 356 published, and the
+  barrel read short. A single scale factor cannot fix that. Anchor two
+  published lengths and scale the photo piecewise between them (here 0.901
+  behind the trigger, 1.067 ahead of it), then check a third that fixed
+  nothing: the barrel came out 438 mm against 457, 4 % short.
+- Write `Specs.md`, with the tolerance of that third dimension, **before**
+  building. On the shotgun it was written after, so the 4 % could be reported
+  but not called a pass or a fail.
