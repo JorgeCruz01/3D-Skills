@@ -405,6 +405,7 @@ Two texture sets: keep one object per set until both are unwrapped, then a
 | `reference/toolkit-api.md` | before calling any toolkit function |
 | `reference/quad-topology.md` | before writing `construir_lp.py`; when a face will not become a quad |
 | `reference/reference-tracing.md` | the prop is a recognisable object |
+| `reference/reference-likeness.md` | **before the low poly**, on every recognisable object: silhouette against the reference and side-by-side comparison |
 | `reference/fictitious-brands.md` | naming a prop; changing a brand on a finished one |
 | `reference/mcp-session-limits.md` | before a bake, a render batch, or switching `.blend` |
 | `reference/build-lessons.md` | a phase gate fails, or before writing the builder of a prop larger or more repetitive than the last |

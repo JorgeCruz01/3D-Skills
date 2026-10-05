@@ -200,6 +200,49 @@ Two measurement traps:
   sits in front of another (a visor 0.7 mm from its support: the support
   baked white), and give a 1 mm part an extrusion under its thickness.
 
+## Parametric skins: `piel.py`
+
+Organic or slab-like parts (a controller shell, a mask facepiece, a guitar
+body, a headstock) are not built from fused primitives and then retopologised.
+They are one outline plus a height function, sampled as a loft of sections
+`x = const`. Fine sampling is the high poly; coarse sampling **is** the low
+poly, already in quads, with loops that run around the part.
+
+- `piel.Contorno(polygon)`: `tramo(x)` (the interval a vertical line cuts),
+  `dist(points)` (distance to the outline), `estaciones(n)`.
+- Edge rounding comes from the distance to the outline (`piel.canto(d, r)`),
+  so the radius is continuous round concave and convex corners alike.
+- `piel.losa(...)`: flat faces, rounded edges, a vertical wall when
+  `r < thickness / 2`. `pared=2` adds wall points: without them the end cap of
+  a narrow section has 0.6 x 38 mm columns (64:1) and splitting them drags a
+  loop through the whole part (1,054 -> 6,590 faces).
+- `piel.placa(...)`: a flat plate of any outline, caps gridded.
+
+The outline must be **simple in the station direction**. When it is not:
+
+- Simple by rows but not by columns: pass the outline as `(y, x)` and
+  `girar=True` (a headstock).
+- Simple in neither: cut it into pieces that are, along straight lines, and
+  let the pieces touch face to face. A guitar body is four (shoulder, the
+  stretch beside the neck, the body below the cutaway, the horn). Round the
+  edges by the distance to the **real** border of the union
+  (`piel.Borde.de(...)`, with the cut edges masked out), not to each piece's
+  own outline, or every cut becomes a V groove.
+- Do not put the step inside one piece's outline. Two stations 1.2 mm apart
+  make the wall, but the skewed strip leaves a slit on the outer wall where
+  the next piece starts, and it bakes black.
+
+A step that belongs to one piece (the notch a shoulder button sits in) is
+fine: two stations 0.3 mm apart, the sections on the short side starting at
+the notch wall.
+
+Measured on three props: controller shell 53 sections x 28 points, silhouette
+0.35 %; mask facepiece 27 x 24, 0.36 %; guitar body, four slabs.
+
+UV: a closed skin has no hard edges, so the automatic seams shred it (42 %
+coverage). Seam it on the rim and on a few section loops (71 %). On a slab,
+seam between the flat faces and the rounded edge.
+
 ## Gates added
 
 | Gate | Pass |

@@ -273,3 +273,22 @@ Related additions elsewhere:
 | `F.caja_lazos(name, x, y, levels, col, r, s, marcas)` | rounded-corner box as a loft with a loop per level and marked points per side |
 | `F.anillo_radial(exterior, interior, centro, fundir)` | paired loops for `F.prisma_anillo` from two arbitrary outlines |
 | `L.costura_tiras(step, width=None)` | UV seam predicate that cuts long narrow strips every `step` metres |
+
+### piel.py: parts from an outline and a height function
+
+| Call | Does |
+|---|---|
+| `piel.Contorno(poly)` / `.de_medio(half, n, vivos)` | outline; `tramo(x)`, `dist(P)`, `estaciones(n)` |
+| `piel.Borde.de((cont, mask), ...)` | distance to the real border of a part made of several pieces |
+| `piel.canto(d, r, exp)` | edge profile from distance to the border |
+| `piel.losa(name, cont, col, thickness, r, z0, xs, nx, n, cara, dorso, borde, girar, pared)` | slab or skin as a loft of sections; quads |
+| `piel.placa(name, outline, col, z0, thickness, n, bisel)` | flat plate of any outline, caps gridded |
+
+### parecido.py: likeness to the reference
+
+| Call | Does |
+|---|---|
+| `parecido.medir(ref, col, desde, arriba, salida, modo)` | silhouette IoU against a square-on reference + difference image |
+| `parecido.mascara_ref(path, modo, recorte)` / `mascara_modelo(col, desde, arriba, res, ocultar)` | the two silhouettes |
+| `parecido.comparar(ref_mask, model_mask, salida)` | scale, best shift, IoU, missing %, extra % |
+| `parecido.lado_a_lado(ref, col, desde, arriba, salida)` | reference and orthographic render side by side |
