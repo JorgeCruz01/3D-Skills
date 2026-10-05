@@ -11,11 +11,13 @@
   "plugins": [
     {
       "name": "blender-props",
-      "description": "Measurement discipline for Blender prop pipelines: numeric verification gates for modeling, retopology, UV, baking, rendering and animation",
+      "description": "Blender prop pipelines through MCP or bpy: a parametric build pipeline with its toolkit (references, high poly, low poly, UV, bake, export, delivery sheets) and the measurement discipline that gates every phase",
       "source": "./",
       "strict": false,
       "skills": [
-        "./skills/verifying-blender-props"
+        "./skills/verifying-blender-props",
+        "./skills/building-blender-props",
+        "./skills/building-blender-soft-goods"
       ]
     }
   ]

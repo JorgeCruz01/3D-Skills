@@ -61,6 +61,9 @@ Use `verifications.py` (next to this file). Every function returns a dict.
 | Bake | `bake_fidelity(col_hp, col_lp, camera, out_dir)` | `mean_diff_255 < 2`. Renders HP and baked LP from the same camera and lights. When it fails read `mean_smooth_255`: it separates what the normal map got wrong (smooth areas) from contours landing a pixel apart. It does not move the threshold; it says where to look. Delete the in-memory bake images before building the final material, or the render uses the previous bake's pixels and the number does not move |
 | Delivery renders | `decals_visible(decals, carrier)` | `ok == True`: for every decal vertex, the first hit on the carrier seen from outside is BEHIND the decal. Real case: dial legends on an instrument panel were placed on a recessed flat that was narrower than its cutter (a lip of the housing started 4.5 mm inside the nominal edge); "HOLD" rendered as "OLD". The text was not floating and not crossing — it was buried |
 | Bake | `texture_files(dir, expect)` right after the bake | `ok == True`: every map on disk, none 0×0, expected resolution. A bake image exists in the session before it exists as a file |
+| Bake | `occlusion_map_stats(path)` on every AO or ORM map | `ok == True`, or a stated reason why the part is enclosed. An AO bake counts everything render-visible, not just the high poly. Thirty sets on sixteen delivered props had a median of 0.21–0.54 on open faces because the studio cyclorama was in the bake; hidden, 0.36–1.0. `bake_fidelity` could not see it: the low-poly preview material did not use the channel |
+| Simulated cloth | `self_intersections(skin)` after every simulation | `crossing_faces == 0`. A fold and a surface passing through itself render the same. 10 % slack with seams shrunk 12 % gave 69 crossing faces on one bag; `manifold` passed it |
+| Assembly, sewn goods | `pairwise_intersections` against a written list of pairs that cross ON PURPOSE (piping in fabric, strap in buckle, pad sewn into a panel) | zero pairs outside the list. Do not skip the gate and do not add margin: on a backpack 17 of 29 crossing pairs were sewing and 12 were defects — straps inside the fabric, buckles sunk into it, a strap pierced by zipper teeth |
 | Export | `fbx_roundtrip(path, expect_tris, …)` | `ok == True`: re-imported triangle count, UV layers, material names and dimensions match what was meant to ship |
 | Save / reload | re-open the file (or `wm.read_homefile` + reload) and check that every datablock the pipeline depends on still exists | targeted datablocks present after a real save-and-reload, not just in the session that created them — Blender purges unused-user datablocks on save. Anything intentionally reserved for later (e.g. a material created empty, to be filled next session) needs `use_fake_user = True`. This is also the gate that catches work done outside a build script: hardware rebuilt from a script lost the UV a manual `smart_project` had given it, and nothing else noticed |
 | File hand-off | `datablocks_on_disk(path, expect_objects=…)` before copying, linking or handing over any `.blend` | `ok == True`. **Measuring the session is not measuring the file.** Every other function here inspects `bpy.data`, which is the open session; an unsaved session and its file on disk are different objects and nothing warns you. Measured: a client `.blend` was inspected through `bpy.data` (21,966 verts, all correct) and the FILE copied — the file was 140,543 bytes and contained **no objects at all**. The mesh existed only in the unsaved session and reached disk later, after the copy was made. The working file was born empty |
@@ -514,3 +517,38 @@ Things that survive good technical judgement:
 - An object joined from parts inherits the first part's `hide_render`. A
   silhouette comparison then read 100 % different / −100 % area: the low poly
   was simply not rendering. A −100 % area delta is never a geometry result.
+- **The AO pass sees the whole scene.** Hide every render-visible object that
+  is not the high-poly source before baking — backdrop, floor, the ORIGINAL
+  low poly when baking against a proxy copy of it. A decimated low poly
+  weaves in and out of its high poly and occludes it in blotches (AO median
+  0.42 with it visible, 0.87 hidden, same mesh).
+- A baked channel that no preview material uses is unverified. The occlusion
+  channel of sixteen props was wrong for a whole batch because the Blender
+  material ignored it. Either wire every delivered channel into the preview
+  or measure the map directly.
+- Multiplying base colour by the AO map in the preview does NOT stand in for
+  contact shadows: it darkened broad areas and bake fidelity went 6.2 → 8.7
+  at full strength, 6.6 at 0.4. Shadows missing under proud baked detail are
+  fixed with geometry (6.25 → 5.04 with 1,900 triangles of straps), not with
+  AO.
+- **A `.glb` embeds its textures; an `.fbx` references them.** After changing
+  any map on disk, the FBX is current and the GLB is stale. Re-export.
+- Cloth solver time is not linear in vertices: 8,250 took 0.25 s per frame,
+  40,436 about 25 s. Time ten frames before launching forty.
+- `bpy.app.timers.register(f)` dies when a file is opened. A chain that opens
+  the next `.blend` and continues needs `persistent=True`: without it a
+  16-file re-export stopped after the second file with no error.
+- Offsetting a projected point along the surface normal on every smoothing
+  pass makes it creep sideways (4 mm over 40 passes on a bulged pocket).
+  When the projection is a fixed ray, offset back along the ray.
+- A ray cast "from outside" needs its origin checked: backing off 80 mm from
+  a guide beside one bulge started the ray inside the next one, and the
+  first hit was the wrong object's back face.
+- An organic mesh has no hard edges to seam on. Classifying faces by region
+  and seaming between classes leaves a zigzag frontier and hundreds of
+  one-triangle islands (965 islands, 39 % coverage). Cut the mesh on planes
+  first, then seam on the cut loops (324 islands, 59 %).
+- A closed loop of thin tube (piping, a wire rim) unwraps as one long strip
+  and shrinks the whole atlas: coverage 74 % → 37 % from 2,700 triangles of
+  piping. Build it as short open segments — with distinct end vertices, or
+  the weld step fuses neighbours into non-manifold edges (27 of them).

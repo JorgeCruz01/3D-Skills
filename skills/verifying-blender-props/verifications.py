@@ -1440,3 +1440,69 @@ def uv_null_faces(object_names, uv_layer=None):
         if n:
             null[name] = n
     return {"ok": evaluated > 0 and not null and not missing, "evaluated": evaluated, "null": null, "no_uv_layer": missing}
+
+
+def occlusion_map_stats(path, channel=0, min_median=0.6):
+    """Distribution of a baked occlusion channel over the texels that were
+    written. `path`: the AO image or the ORM (`channel=0` is its red channel).
+
+    An ambient-occlusion bake counts EVERYTHING render-visible in the scene,
+    not only the high poly: the studio floor, the cyclorama, and the low poly
+    itself. Real case: thirty texture sets across sixteen delivered props had
+    a median of 0.21-0.54 on their written texels - an open, unobstructed face
+    read as half occluded - because the backdrop was in the bake. Nothing
+    caught it for a whole batch: the low-poly preview material did not use the
+    channel, so `bake_fidelity` could not see it, and a dark AO map looks like
+    a plausible AO map. With the studio hidden the same props read 0.36-1.0;
+    the ones that stayed low are enclosed parts, which is correct.
+
+    `ok` is a prompt to look, not a verdict: a part that really is enclosed
+    (the inside of a housing) legitimately sits under `min_median`. Say which
+    case it is. Unwritten texels (value 0) are excluded and reported.
+
+    Returns {"ok", "evaluated", "median", "p10", "p90", "unwritten_pct"}."""
+    import numpy as np
+    img = bpy.data.images.load(path, check_existing=False)
+    try:
+        w, h = img.size
+        if w == 0 or h == 0:
+            return {"ok": False, "evaluated": 0, "error": "empty image"}
+        a = np.empty(w * h * 4, dtype=np.float32)
+        img.pixels.foreach_get(a)
+    finally:
+        bpy.data.images.remove(img)
+    a = a.reshape(-1, 4)[:, channel]
+    used = a[a > 0.004]
+    if used.size == 0:
+        return {"ok": False, "evaluated": 0, "unwritten_pct": 100.0}
+    med = float(np.median(used))
+    return {"ok": med >= min_median, "evaluated": int(used.size), "median": round(med, 3),
+            "p10": round(float(np.percentile(used, 10)), 3), "p90": round(float(np.percentile(used, 90)), 3),
+            "unwritten_pct": round(100.0 * float((a <= 0.004).mean()), 1)}
+
+
+def self_intersections(name):
+    """Faces of one mesh that cross other faces of the SAME mesh without
+    sharing a vertex. For simulated cloth: a fold and a surface passing
+    through itself look identical in a render, and `manifold` passes both.
+
+    Real case: an inflated fabric bag with 10 % slack and its seams shrunk
+    12 % rendered as heavily crumpled cloth and had 69 self-crossing faces;
+    the same bag with no slack had 0. Every skin that shipped measured 0.
+
+    Returns {"ok", "evaluated", "crossing_faces"}."""
+    from mathutils.bvhtree import BVHTree
+    ob = bpy.data.objects[name]
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bm.faces.ensure_lookup_table()
+    tree = BVHTree.FromBMesh(bm, epsilon=0.0)
+    crossing = set()
+    for a, b in tree.overlap(tree):
+        if a < b and not ({v.index for v in bm.faces[a].verts} & {v.index for v in bm.faces[b].verts}):
+            crossing.add(a)
+            crossing.add(b)
+    n = len(bm.faces)
+    bm.free()
+    return {"ok": n > 0 and not crossing, "evaluated": n, "crossing_faces": len(crossing)}
+

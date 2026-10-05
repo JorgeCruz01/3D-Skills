@@ -25,17 +25,48 @@ To pull later updates:
 
 **`verifying-blender-props`** — measurement discipline for a Blender prop
 pipeline driven through MCP or `bpy` scripts. Verification gates per phase, each
-returning a number against a threshold, plus `verifications.py`: 26 functions
+returning a number against a threshold, plus `verifications.py`: 28 functions
 covering manifold and dimension checks, degenerate faces, clearance and
 seating between parts (static and animated), signed distance to a surface,
 leak test of cavities, high-poly fingerprint, decal visibility,
 UV density and overlap, LP-vs-HP silhouette, bake fidelity, texture files on
 disk, FBX round-trip, datablocks on disk, backdrop coverage during a
-turntable, framing across an animation range, turntable loop closure, and
-render cost.
+turntable, framing across an animation range, turntable loop closure, render
+cost, occlusion-map statistics and self-intersection of simulated cloth.
 
 Every function in it caught at least one real defect that visual inspection had
 already waved through.
+
+**`building-blender-props`** — the pipeline that produced sixteen game-ready
+props in Blender 5.2 through MCP: a prop is three parametric Python builders
+(dimensions and solids, high poly, low poly) and a folder of measured evidence.
+Phase order from reference photos to README, with the decision rules each
+phase taught and the prop and number behind each one. Ships:
+
+- `toolkit/` — 17 modules: parametric solids, cast-then-machine high poly,
+  boolean low poly with replicas, seam-driven unwrap, joined-copy bake to
+  BaseColor / Normal / ORM, FBX + GLB export, studio framing, stills,
+  split / wireframe / UV / map sheets, CC0 PBR download. It calls
+  `verifications.py` from the skill above.
+- `reference/` — the toolkit API, tracing outlines from reference photos,
+  fictitious brands and how to rebrand a finished prop, the limits of driving
+  one Blender over MCP, and build lessons by phase.
+
+The toolkit needs a studio template `.blend` (lights, three cameras, backdrop,
+two collections) that is not in this repo; `toolkit/README.md` lists what it
+must contain.
+
+**`building-blender-soft-goods`** — what changes when the prop is fabric,
+webbing or padding. The fabric is one closed skin inflated by the cloth solver;
+straps, zippers and piping are traced onto the simulated skin instead of being
+placed by coordinates. Simulation settings with their measured results, three
+projection modes for sewn-on parts, the assembly gate for parts that cross on
+purpose, and low poly and UV for a mesh with no hard edges. Measured on one
+prop, a 29-litre backpack; it says what it has not been tried on. The code is
+`toolkit/tela.py` in the skill above.
+
+The skills split the work: the two `building` skills say what to make and
+which function to call, `verifying` says whether it passed.
 
 ## Contributing
 
