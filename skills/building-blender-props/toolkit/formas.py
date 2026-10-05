@@ -24,7 +24,10 @@ EJES = {"X": (1, 0, 0), "Y": (0, 1, 0), "Z": (0, 0, 1)}
 
 
 def seg(n, q, minimo=3):
-    return max(minimo, int(round(n * q)))
+    # siempre par por encima de 4: una tapa o un polo con un numero impar de lados
+    # no se puede rellenar solo con quads (ver quads.cuadrar)
+    r = max(minimo, int(round(n * q)))
+    return r + 1 if r > 4 and r % 2 else r
 
 
 # ------------------------------------------------------------------ perfiles
@@ -163,18 +166,20 @@ def barrido(nombre, camino, perfil, arriba, coleccion, cerrado=False, suave=True
     return _objeto(nombre, verts, caras, coleccion, suave)
 
 
-def prisma(nombre, contorno, origen, eje, alto, coleccion, bisel=0.0, s=0, suave=False, por_normal=False):
+def prisma(nombre, contorno, origen, eje, alto, coleccion, bisel=0.0, s=0, suave=False, por_normal=False, tramos=1):
     """Extruye un contorno plano (M,2) a lo largo de `eje` desde `origen`.
-    Con bisel, anade un chaflan redondeado de `s` tramos en ambas tapas."""
+    Con bisel, anade un chaflan redondeado de `s` tramos en ambas tapas.
+    `tramos`: anillos intermedios a lo largo del eje (quads menos alargados)."""
     u, v, w = _marco(eje)
     C = np.asarray(contorno, float)
     cen = C.mean(0)
     if bisel > 0 and s > 0:
         base = [(-bisel * (1 - math.sin(a)), bisel * (1 - math.cos(a)))
                 for a in ((math.pi / 2) * k / s for k in range(s + 1))]
-        niveles = base + [(d, alto - h) for d, h in reversed(base)]
+        medio = [(0.0, bisel + (alto - 2 * bisel) * k / tramos) for k in range(1, tramos)]
+        niveles = base + medio + [(d, alto - h) for d, h in reversed(base)]
     else:
-        niveles = [(0.0, 0.0), (0.0, alto)]
+        niveles = [(0.0, alto * k / tramos) for k in range(tramos + 1)]
     if por_normal:
         # desplazamiento por la normal del contorno (a inglete): un redondeo de canto
         # uniforme tambien en contornos alargados o concavos, donde "hacia el centro" no lo es
@@ -202,6 +207,47 @@ def prisma(nombre, contorno, origen, eje, alto, coleccion, bisel=0.0, s=0, suave
     caras.append(tuple(range(m)))
     caras.append(tuple((len(niveles) - 1) * m + j for j in range(m)))
     return _objeto(nombre, verts, caras, coleccion, suave)
+
+
+def prisma_anillo(nombre, exterior, interior, origen, eje, alto, coleccion, tramos=1, suave=False):
+    """Prisma de un contorno CON un hueco pasante (un aro, un guardamonte, un
+    marco): `exterior` e `interior` son dos lazos (M,2) con el MISMO numero de
+    puntos, emparejados uno a uno. Las tapas son una tira de quads entre ambos,
+    asi que la pieza nace entera en quads sin booleano."""
+    u, v, w = _marco(eje)
+    E, I = np.asarray(exterior, float), np.asarray(interior, float)
+    m = len(E)
+    o = np.asarray(origen, float)
+    verts = []
+    for k in range(tramos + 1):
+        h = alto * k / tramos
+        for C in (E, I):
+            for x, y in C:
+                verts.append(o + u * x + v * y + w * h)
+    caras = []
+    for k in range(tramos):
+        a, b = k * 2 * m, (k + 1) * 2 * m
+        for j in range(m):
+            n = (j + 1) % m
+            caras.append((a + j, a + n, b + n, b + j))                       # pared exterior
+            caras.append((a + m + j, b + m + j, b + m + n, a + m + n))       # pared interior
+    t = tramos * 2 * m
+    for j in range(m):
+        n = (j + 1) % m
+        caras.append((j, m + j, m + n, n))
+        caras.append((t + j, t + n, t + m + n, t + m + j))
+    return _objeto(nombre, verts, caras, coleccion, suave)
+
+
+def remuestrear(puntos, n, cerrada=False):
+    """`n` + 1 puntos (o `n` si es cerrada) equidistantes a lo largo de la polilinea."""
+    P = np.asarray(puntos, float)
+    if cerrada:
+        P = np.concatenate([P, P[:1]])
+    d = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))])
+    t = np.linspace(0, d[-1], n + 1)
+    out = np.stack([np.interp(t, d, P[:, k]) for k in range(P.shape[1])], -1)
+    return out[:-1] if cerrada else out
 
 
 def cilindro(nombre, radio, origen, eje, alto, n, coleccion, bisel=0.0, s=0):

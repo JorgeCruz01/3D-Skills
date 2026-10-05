@@ -48,7 +48,8 @@ paint.
 formas                      bpy, bmesh, numpy
 ├─ colada                   formas
 ├─ lowpoly                  formas
-└─ tela                     formas (cloth skins, straps, zippers: see building-blender-soft-goods)
+├─ tela                     formas (cloth skins, straps, zippers: see building-blender-soft-goods)
+└─ quads                    formas (all-quad low poly: see reference/quad-topology.md)
 uv · bake · materiales · exportar · laminas · estudio · prop      standalone
 texturas                    prop (optional, for the cache location)
 puertas                     verifications

@@ -18,8 +18,14 @@ def pbr(nombre, mapas, tinte=(1, 1, 1), tam_m=0.25, rough=(0.0, 1.0), metal=None
         normal=1.0, suciedad=0.35, color_suciedad=(0.05, 0.04, 0.03), desgaste=0.0,
         color_desgaste=(0.8, 0.8, 0.8), transmision=0.0, ior=1.45, mezcla_tinte=1.0,
         manchas=0.0, color_manchas=(0.06, 0.05, 0.04), escala_manchas=9.0,
-        desconchado=0.0, escala_desconchado=45.0):
-    """Crea (o rehace) el material `nombre`. `rough` = (suma, factor) sobre el mapa."""
+        desconchado=0.0, escala_desconchado=45.0, polvo=0.0, color_polvo=(0.30, 0.25, 0.18), altura_polvo=(0.0, 0.15),
+        sol=0.0, color_sol=(0.45, 0.42, 0.36)):
+    """Crea (o rehace) el material `nombre`. `rough` = (suma, factor) sobre el mapa.
+    `polvo`: polvo claro que sube desde el suelo, entre las cotas Z `altura_polvo`
+    (m, coordenadas de objeto) y roto con ruido. `sol`: decolorado de las caras que
+    miran hacia arriba. Las dos capas dependen de la POSICION en la pieza, que es
+    lo que le falta a un material hecho solo de cavidad y canto: sin ellas una
+    mochila entera sale de un unico tono."""
     mat = bpy.data.materials.get(nombre) or bpy.data.materials.new(nombre)
     mat.use_nodes = True
     mat.use_fake_user = True
@@ -163,6 +169,52 @@ def pbr(nombre, mapas, tinte=(1, 1, 1), tam_m=0.25, rough=(0.0, 1.0), metal=None
         col, mancha = _capa(escala_manchas, 0.48, 0.72, manchas, color_manchas, -650)
     if desconchado > 0:
         col, _ = _capa(escala_desconchado, 0.66, 0.68, desconchado, color_desgaste, 250)
+    if polvo > 0:
+        sp = N.new("ShaderNodeSeparateXYZ")
+        sp.location = (-650, 1800)
+        L.new(tc.outputs["Object"], sp.inputs["Vector"])
+        mz = N.new("ShaderNodeMapRange")
+        mz.location = (-450, 1800)
+        mz.inputs["From Min"].default_value, mz.inputs["From Max"].default_value = altura_polvo
+        mz.inputs["To Min"].default_value, mz.inputs["To Max"].default_value = 1.0, 0.0
+        L.new(sp.outputs["Z"], mz.inputs["Value"])
+        pf = N.new("ShaderNodeMath")
+        pf.operation = "MULTIPLY"
+        pf.location = (-250, 1800)
+        L.new(mz.outputs["Result"], pf.inputs[0])
+        L.new(mr.outputs["Result"], pf.inputs[1])
+        pf2 = N.new("ShaderNodeMath")
+        pf2.operation = "MULTIPLY"
+        pf2.use_clamp = True
+        pf2.location = (-50, 1800)
+        pf2.inputs[1].default_value = polvo
+        L.new(pf.outputs[0], pf2.inputs[0])
+        mxp = N.new("ShaderNodeMix")
+        mxp.data_type = "RGBA"
+        mxp.location = (150, 1800)
+        L.new(pf2.outputs[0], mxp.inputs["Factor"])
+        L.new(col, mxp.inputs["A"])
+        mxp.inputs["B"].default_value = (*color_polvo, 1)
+        col = mxp.outputs["Result"]
+    if sol > 0:
+        gn = N.new("ShaderNodeNewGeometry")
+        gn.location = (-650, 2100)
+        sn = N.new("ShaderNodeSeparateXYZ")
+        sn.location = (-450, 2100)
+        L.new(gn.outputs["Normal"], sn.inputs["Vector"])
+        ms = N.new("ShaderNodeMapRange")
+        ms.location = (-250, 2100)
+        ms.inputs["From Min"].default_value, ms.inputs["From Max"].default_value = 0.15, 0.95
+        ms.inputs["To Min"].default_value, ms.inputs["To Max"].default_value = 0.0, sol
+        L.new(sn.outputs["Z"], ms.inputs["Value"])
+        mxs = N.new("ShaderNodeMix")
+        mxs.data_type = "RGBA"
+        mxs.blend_type = "SCREEN"
+        mxs.location = (150, 2100)
+        L.new(ms.outputs["Result"], mxs.inputs["Factor"])
+        L.new(col, mxs.inputs["A"])
+        mxs.inputs["B"].default_value = (*color_sol, 1)
+        col = mxs.outputs["Result"]
     L.new(col, bsdf.inputs["Base Color"])
 
     # --- rugosidad: mapa * factor + suma, mas aspera donde hay suciedad
@@ -229,13 +281,16 @@ def asignar(objeto, material, limpiar=True):
     return len(ob.data.materials) - 1
 
 
-def relieve(nombre, tipo, paso, fondo, caja=None, x_min=None, angulo=30.0):
+def relieve(nombre, tipo, paso, fondo, caja=None, x_min=None, angulo=30.0, tinte=0.0, color_tinte=(0.25, 0.25, 0.25)):
     """Anade a un material ya creado un relieve fino por sombreado (nodo Bump), en
     coordenadas de objeto, para detalle que no merece geometria y que el bake si
     recoge en el mapa de normales.
 
     tipo "picado": dos familias de surcos cruzados a +-`angulo` (cachas de madera).
     tipo "hoyuelos": celdas redondas (goma antideslizante).
+    `tinte`: ademas oscurece el color base en los valles del relieve (hacia
+    `color_tinte`, multiplicando). Un tejido solo en el mapa de normales se pierde
+    en cuanto la luz es frontal; con el valle tambien en el color se sigue leyendo.
     `paso` y `fondo` en metros. `caja` = ((y0, y1), (z0, z1)) limita la zona en el
     plano YZ; `x_min` deja el relieve solo donde |x| supera ese valor."""
     import math
@@ -308,6 +363,15 @@ def relieve(nombre, tipo, paso, fondo, caja=None, x_min=None, angulo=30.0):
         mascara = t if mascara is None else mat("MULTIPLY", mascara, t)
     if mascara is not None:
         alto = mat("MULTIPLY", alto, mascara)
+    if tinte > 0 and bsdf.inputs["Base Color"].links:
+        base = bsdf.inputs["Base Color"].links[0].from_socket
+        mx = N.new("ShaderNodeMix")
+        mx.data_type = "RGBA"
+        mx.blend_type = "MULTIPLY"
+        L.new(mat("MULTIPLY", mat("SUBTRACT", 1.0, alto, clamp=True), tinte), mx.inputs["Factor"])
+        L.new(base, mx.inputs["A"])
+        mx.inputs["B"].default_value = (*color_tinte, 1)
+        L.new(mx.outputs["Result"], bsdf.inputs["Base Color"])
     b = N.new("ShaderNodeBump")
     b.inputs["Strength"].default_value = 1.0
     b.inputs["Distance"].default_value = fondo

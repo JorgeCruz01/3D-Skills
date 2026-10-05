@@ -93,6 +93,28 @@ def costura_por_orientacion(ref, umbral=0.0, donde=None):
     return f
 
 
+def costura_por_lado(eje, cotas, donde=None):
+    """Predicado de costura UV: aristas entre dos caras cuyo centro cae a
+    distinto lado de alguno de los planos `eje` = cota. Para mallas de quads sin
+    aristas sobre el plano (una piel remallada): cortar la malla con el plano
+    meteria triangulos, y esto deja una costura en escalera por los lazos que ya
+    hay. `donde`: filtro sobre el punto medio de la arista."""
+    i = "XYZ".index(eje)
+    cs = sorted(cotas)
+
+    def clase(f):
+        c = f.calc_center_median()[i]
+        return sum(1 for k in cs if c > k)
+
+    def f(e):
+        if len(e.link_faces) != 2:
+            return False
+        if donde and not donde((e.verts[0].co + e.verts[1].co) / 2):
+            return False
+        return clase(e.link_faces[0]) != clase(e.link_faces[1])
+    return f
+
+
 def cualquiera(*predicados):
     return lambda e: any(p(e) for p in predicados)
 

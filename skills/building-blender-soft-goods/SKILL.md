@@ -32,7 +32,7 @@ This skill only covers what changes when the material is soft. The code is
 | 5 | Measure the skin | `T.medir(ob, area_inicial)` | `caras_cruzadas == 0`, volume against the spec, bounding box against the spec |
 | 6 | Finish: smooth, subdivide ×2, shader weave | `T.alisar`, Subsurf, `M.relieve(mat, "tejido"…)` | — |
 | 7 | Sewn-on parts, in order: piping → zippers → straps → harness | `T.cincha`, `T.trazar`, `T.cinta`, `T.cajitas`, `T.asentar` | sewn-pair assembly gate (below) |
-| 8 | Low poly: decimate the skin, cut it on its real seams, rebuild sewn parts coarse | `T.diezmar`, `L.cortar_en`, same builders with `q < 0.5` | `tanda.malla`, silhouette |
+| 8 | Low poly, all quads: remesh the skin, fit it to the high poly, rebuild sewn parts coarse | `T.diezmar(…, 60000)` → `Q.retopo` → `Q.ajustar`; same builders with `q < 0.5` + `Q.cuadrar` | `Q.censo`, `tanda.malla`, silhouette |
 | 9 | UV with seams on the cut planes | `uv.desplegar(names, extra=L.costura_en_planos(...))` | overlap 0, coverage, density |
 
 ## Simulation rules
@@ -122,23 +122,23 @@ pierced by zipper teeth and a patch crossing its panel.
 
 ## Low poly and UV
 
-- **The low poly of a simulated skin is a decimation**, not a rebuild: there
-  are no solids to regenerate at lower quality. Say so in the README; it has
-  no edge flow and would not deform well.
-- **What stands proud of the fabric and reads from a distance gets its own
-  geometry.** With webbing rows, compression straps and piping baked onto the
-  skin: silhouette 1.4–1.6 % (fail). With piping as geometry: silhouette
-  0.4–0.8 %, bake fidelity 6.25/255. With rows and straps too (896 + 1,024
-  triangles): 5.04/255, 1.97 on smooth areas. Zippers, stitches and
-  the patch stayed in the maps and are where the remaining error sits.
-- **An organic skin has no sharp edges, so it unwraps as one island.**
-  Splitting it by face class leaves a zigzag frontier: 965 islands, coverage
-  39 %. Cut the mesh on the planes of the real seams (`L.cortar_en`) and mark
-  those loops (`L.costura_en_planos`): 324 islands, 58.8 %.
-- **Closed piping loops wreck the atlas.** A 1.6 m ring unwraps as a strip
-  that forces everything else to shrink: coverage 74 % → 37 %. Build
-  low-poly piping in 15 cm open segments that do not share end vertices
-  (shared ends fused into 27 non-manifold edges).
+- **The low poly of a simulated skin is an automatic quad remesh fitted to the
+  high poly**, not a rebuild (there are no solids to regenerate) and not a
+  decimation (triangles). `T.diezmar(name, hp_skin, 60000, col)` to make it
+  light, `Q.retopo(skin, 5200)` (QuadriFlow, 13 s), `Q.ajustar(skin, [hp_skin])`.
+  Measured: 5,091 quads, 30 poles, 0.84 mm maximum snap, loops aligned with the
+  body and the pocket faces without any guidance. Nobody placed a loop by hand
+  and it was never deformed.
+- **Sewn-on parts are already quads**: `T.cinta`, `F.barrido`, `F.loft`,
+  `F.caja_blanda`. Replace `L.limpiar` with `Q.cuadrar` for their caps. 14
+  parts, nothing left unresolved.
+- **An organic skin unwraps as one island.** It has no sharp edges. Splitting
+  it by face class leaves a zigzag border and hundreds of one-face islands (965
+  islands, coverage 39 % on a triangulated skin). On a quad skin, mark the
+  seams as the border between the faces on either side of each real seam plane:
+  `L.costura_por_lado("Y", coords)`, combined with `L.cualquiera`. 459 islands,
+  coverage 52.0 % (the plane-cut triangle version gave 424 and 52.7 %). Do not
+  bisect the mesh: it splits quads.
 - **Hide the original low poly while baking against its proxy.** A decimated
   skin weaves in and out of the high poly and occludes it in blotches.
 
@@ -159,5 +159,20 @@ stretching this flow over it.
 4. Bounding box and volume against the spec. Fix the pattern, not the numbers.
 5. Sewn-on parts in order; build one row and render it before building forty.
 6. Geometry gate; assembly gate with the sewn-pair list; decal visibility.
-7. Low poly: decimate, cut on seams, coarse sewn parts; silhouette gate.
+7. Low poly in quads: remesh, fit, coarse sewn parts with gridded caps; census and silhouette gates.
 8. Unwrap with seam predicates; bake; read the fidelity difference image before changing anything.
+
+## Making the fabric read
+
+A first backpack came back as "the textures do not stand out". Three changes,
+all in the high-poly materials (so both the stills and the bake get them):
+
+| Problem measured in the render | Change |
+|---|---|
+| cloth and webbing at nearly the same value | webbing and piping dark, thread light: the sewn pattern draws itself |
+| weave only in the normal map, gone under frontal light | `M.relieve(..., tinte=0.55)`: the valleys also darken the base colour; pitch 2 mm at 3 px/mm |
+| one tone over the whole pack | `M.pbr(..., polvo=, altura_polvo=(0, 0.14), sol=)`: layers that depend on position, not only on cavity and edge |
+
+First attempt overshot: dust up to 200 mm plus edge wear at 0.5–0.6 washed the
+whole pack pale, and thin webbing reads as "all edge" to a pointiness mask.
+Wear on webbing ≤ 0.2. One prop; the user's verdict on the result is pending.

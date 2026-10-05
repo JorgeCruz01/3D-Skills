@@ -729,24 +729,35 @@ def uv_overlap(names, grid=1024):
                      for i in range(1, len(ls) - 1))
             if au < 1e-9:
                 deg += 1
+            # One mask per FACE, not per triangle. A quad is rasterized as two
+            # fan triangles; with a non-strict test their shared diagonal was
+            # counted twice whenever it crossed a cell centre, and an all-quad
+            # mesh with square, axis-aligned UV faces (diagonals at exactly 45
+            # degrees) reported 13-33 overlapping cells with no overlap at all.
+            # Inner diagonals are inclusive, the face's own border is strict.
+            P = np.array([[l.x, l.y] for l in ls]) * grid
+            x0 = max(int(np.floor(P[:, 0].min())), 0)
+            x1 = min(int(np.ceil(P[:, 0].max())) + 1, grid)
+            y0 = max(int(np.floor(P[:, 1].min())), 0)
+            y1 = min(int(np.ceil(P[:, 1].max())) + 1, grid)
+            if x1 <= x0 or y1 <= y0:
+                continue
+            xs, ys = np.meshgrid(np.arange(x0, x1) + .5, np.arange(y0, y1) + .5)
+            mask = np.zeros(xs.shape, bool)
+            last = len(ls) - 2
             for i in range(1, len(ls) - 1):
-                tri = np.array([[ls[0].x, ls[0].y], [ls[i].x, ls[i].y],
-                                [ls[i + 1].x, ls[i + 1].y]]) * grid
-                x0 = max(int(np.floor(tri[:, 0].min())), 0)
-                x1 = min(int(np.ceil(tri[:, 0].max())) + 1, grid)
-                y0 = max(int(np.floor(tri[:, 1].min())), 0)
-                y1 = min(int(np.ceil(tri[:, 1].max())) + 1, grid)
-                if x1 <= x0 or y1 <= y0:
-                    continue
-                xs, ys = np.meshgrid(np.arange(x0, x1) + .5, np.arange(y0, y1) + .5)
-                a, b, c = tri
+                a, b, c = P[0], P[i], P[i + 1]
                 d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
                 if abs(d) < 1e-12:
                     continue
                 w0 = ((b[1] - c[1]) * (xs - c[0]) + (c[0] - b[0]) * (ys - c[1])) / d
                 w1 = ((c[1] - a[1]) * (xs - c[0]) + (a[0] - c[0]) * (ys - c[1])) / d
-                count[y0:y1, x0:x1] += ((w0 >= 0) & (w1 >= 0) &
-                                        ((1 - w0 - w1) >= 0)).astype(np.int16)
+                w2 = 1 - w0 - w1
+                m = w0 > 0                                    # edge (i, i+1): always border
+                m &= (w1 > 0) if i == last else (w1 >= 0)     # edge (i+1, 0): border on the last fan
+                m &= (w2 > 0) if i == 1 else (w2 >= 0)        # edge (0, i): border on the first fan
+                mask |= m
+            count[y0:y1, x0:x1] += mask.astype(np.int16)
         bm.free()
     covered = int((count >= 1).sum())
     return {"coverage_pct": round(100 * covered / grid ** 2, 2),

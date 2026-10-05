@@ -234,3 +234,29 @@ Workflow and measured settings: the building-blender-soft-goods skill.
 | `tanda.hornear_y_exportar(..., ao=0.0, solo_medir=False)` | `solo_medir=True` skips the bake and re-measures silhouette, fidelity and export on the maps already on disk |
 | `materiales.relieve(nombre, tipo, paso, fondo, ...)` | new `tipo`: `"tejido"` (plain weave), `"canale"` (webbing ribs), `"arruga"` (soft noise) |
 
+
+## quads — all-quad low poly (`import quads as Q`)
+
+Why and when: `quad-topology.md`.
+
+| Call | Returns | Notes |
+|---|---|---|
+| `Q.censo(ob)` | `{caras, tris, quads, ngonos, pct_quads, polos, pct_polos, aristas_no_estancas}` | the gate: `tris == 0 and ngonos == 0` |
+| `Q.cuadrar(ob, soldar=0.02mm)` | census + `rejillas`, `sin_resolver` | cap n-gons and pole fans → Coons grids; boundary must be even |
+| `Q.ajustar(ob, sobre, solo=None, mezcla=1.0)` | `{max_mm, media_mm, movidos}` | snaps vertices to the nearest point of the meshes `sobre`; `solo(co)` filters |
+| `Q.desvio(ob, sobre, tope=2.0)` | `{p50_mm, p95_mm, max_mm, sobre_tope, muestras}` | face and edge midpoints against the high poly |
+| `Q.retopo(ob, caras, vivos=None, semilla=0)` | census + `quadriflow` | QuadriFlow in place; decimate to ~60k first |
+| `Q.ventana(ob, dentro, fondo)` | faces sunk | `dentro(centre, normal) -> bool`, `fondo(co) -> co`; pocket stays quads and watertight |
+| `Q.lamina(nombres, ruta, desde, ancho=2000, grosor=0.35mm, centro=None, radio=None)` | path | 1 s Workbench render of the real edges |
+
+Related additions elsewhere:
+
+| Call | Notes |
+|---|---|
+| `F.seg(n, q, minimo)` | now rounds to an even count above 4 |
+| `F.prisma(..., tramos=1)` | intermediate rings along the axis |
+| `F.prisma_anillo(nombre, exterior, interior, origen, eje, alto, col, tramos=1)` | prism of an outline with a through hole; two paired loops |
+| `F.remuestrear(puntos, n, cerrada=False)` | `n` equidistant spans along a polyline |
+| `L.costura_por_lado(eje, cotas, donde=None)` | UV seam predicate: border between faces on either side of a plane |
+| `M.pbr(..., polvo=, color_polvo=, altura_polvo=(z0, z1), sol=, color_sol=)` | dust rising from the floor between two object-space heights; fade on upward faces |
+| `M.relieve(..., tinte=, color_tinte=)` | also darkens the base colour in the relief's valleys |

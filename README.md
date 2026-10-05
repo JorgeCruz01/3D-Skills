@@ -43,7 +43,7 @@ props in Blender 5.2 through MCP: a prop is three parametric Python builders
 Phase order from reference photos to README, with the decision rules each
 phase taught and the prop and number behind each one. Ships:
 
-- `toolkit/` — 17 modules: parametric solids, cast-then-machine high poly,
+- `toolkit/` — 18 modules: parametric solids, cast-then-machine high poly,
   boolean low poly with replicas, seam-driven unwrap, joined-copy bake to
   BaseColor / Normal / ORM, FBX + GLB export, studio framing, stills,
   split / wireframe / UV / map sheets, CC0 PBR download. It calls

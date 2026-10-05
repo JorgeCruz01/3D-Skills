@@ -43,7 +43,7 @@ phases with a different high poly: blender-props:building-blender-soft-goods.
 Conventions: 1 unit = 1 m, scales applied, +Z up, front faces −Y. Object names
 in Spanish without accents. High poly in `Model Collection`, decals in its child
 collection `Rotulos`, low poly in `LP Collection` as ONE object
-`<Prop_Name>_LP` with one material `LP_<Set>` per texture set. Normal map
+`<Prop_Name>_LP`, **all quads**, with one material `LP_<Set>` per texture set. Normal map
 16-bit OpenGL; ORM = AO, Roughness, Metallic.
 
 ## Budgets
@@ -86,7 +86,7 @@ Binding. Touching a phase invalidates everything after it.
 | 3 | High poly | `construir_hp.materiales_<prop>()`, `construir_hp.construir()` | `puertas.geometria`, `puertas.ensamblaje`, `decals_visible` |
 | 4 | Independent check | `F.volumen_cm3`, rays, a rotated copy | the figure from `Specs.md`, **before** any low poly |
 | 5 | Render audit | `estudio.vistas_previas(col, carpeta)` | feature list walked against the reference photo |
-| 6 | Low poly | `antes = puertas.huella(HP)`; `construir_lp.construir()` | `tanda.malla`, `puertas.huella_intacta`, triangle tier |
+| 6 | Low poly, all quads | `antes = puertas.huella(HP)`; `construir_lp.construir()` | `Q.censo` (0 tris, 0 n-gons), `Q.desvio`, `tanda.malla`, `puertas.huella_intacta` |
 | 7 | UV | `uv.desplegar(names_of_one_set, extra=...)` per set | `tanda.medir_uv`, `puertas.piso_densidad` |
 | 8 | Replicas, join | `construir_lp.replicar()`, `construir_lp.juntar()` | triangle count, material slots, 1 UV layer |
 | 9 | Bake + export | `tanda.hornear_y_exportar(...)` | `_ultimo.json`: textures on disk, silhouette ×3, fidelity, FBX round-trip |
@@ -161,20 +161,36 @@ build — most first-build crossings were visible in the numbers.
 
 ### 6 · Low poly
 
-- `L.union_mecanizada(name, solidos(q), cortes(q), CORTES_LP, solver, soldar)`
-  per cast body; `L.limpiar(o)` on every exact part; then `F.unir` and
-  `F.sombrear(lp, 50)`. No decimation.
-- `CORTES_LP` = the cutters that change the silhouette or house a part. A low
-  poly far under its tier is missing silhouette features (clamp meter 2,424 →
-  8,994 tris after moving grip slots and ribs into geometry). Do not pad to
-  reach a tier either: four props shipped under theirs, declared.
-- `q`, `soldar`, solver and `L.trocear` step are tried per part against
-  `tanda.malla`. Ranges that shipped: `q` 0.4–1.0, `soldar` 0.1–1.4 mm, slices
-  every 40–60 mm. If no `soldar` works, the solids are tangent somewhere.
+**The low poly is 100 % quads** — no triangles, no n-gons — and is built without
+booleans or decimation. Constructions, measured cases and costs:
+`reference/quad-topology.md`. Read it before writing `construir_lp.py`.
+
+| Part | Build it as | Then |
+|---|---|---|
+| turned, extruded, swept, boxed | the same `formas` call as the high poly, lower `q` | `Q.cuadrar` |
+| carved or cast body with an axis | a loft / prism cage with points on the curvature | `Q.ajustar(cage, [hp_part])`, `Q.cuadrar` |
+| plate or ring with a through hole | `F.prisma_anillo(exterior, interior, ...)` | — |
+| lofted body with a window or pocket | sections and stations on the window's edges | `Q.ventana`, `Q.cuadrar` |
+| skin with no generating solids | `T.diezmar(…, 60000)` → `Q.retopo(skin, quads)` | `Q.ajustar` |
+
+- Holes that only house another part are left out and the parts **cross**.
+  Slots, channels and rounded window ends go to the normal map. Declare both.
+- Close the phase on `Q.censo` (`tris == 0`, `ngonos == 0`, watertight) and
+  `Q.desvio(lp, hp, tope=<extrusion in mm>)`; look at `Q.lamina`.
+- `Q.cuadrar` needs even boundaries: `F.seg` rounds to even; resample hand
+  outlines with `F.remuestrear`. Read `sin_resolver`.
+- A low poly far under its tier may be missing silhouette features (clamp
+  meter 2,424 → 8,994 tris after moving grip slots and ribs into geometry) —
+  check the silhouette gate, not the count. Do not pad to reach a tier: the
+  quad shotgun shipped at 8,060 against 15–30k.
+- Long parts get rings from `tramos=` on the prism or from the loft's stations,
+  not from `L.trocear` (plane cuts split quads).
 - Repeated parts: build one, `L.marcar([part], "Rep_<x>")` **before** joining,
   and replicate after unwrapping. A radial engine carries 33,194 of its 52,394
   triangles on one cylinder's texture.
 - One **object per texture set** until unwrapped; `juntar()` joins them after.
+- `L.union_mecanizada`, `L.limpiar`, `L.trocear` and `L.cortar_en` are the
+  first batch's path. They triangulate. Sixteen props still ship that way.
 
 ### 7–8 · UV
 
@@ -187,6 +203,9 @@ build — most first-build crossings were visible in the numbers.
   `L.costura_por_orientacion(ref, 0.5)` for rounded sheet metal,
   `L.costura_en_planos(axis, L.PLANOS[name][axis])` for sliced long parts,
   combined with `L.cualquiera(...)`.
+- A remeshed skin has no edges on its seam planes: `L.costura_por_lado(axis,
+  coords)` marks the border between the faces on either side instead of
+  cutting the mesh.
 - Measure (`tanda.medir_uv`, `puertas.piso_densidad`) **before** `replicar()`:
   replicas overlap their original by design.
 
@@ -336,26 +355,32 @@ def solidos(): return [o.name for o in bpy.data.collections[COL].objects]
 ```
 
 ```python
-# construir_lp.py
-import bpy, construir_farol as CF, formas as F, lowpoly as L
-COL, NOMBRE, GLOBO = "LP Collection", "Farol_Queroseno_LP", "Farol_Globo_LP"
-CORTES_LP = {"_hueco_base"}                     # the only cutter that changes the silhouette
+# construir_lp.py — all quads, no booleans
+import bpy, construir_escopeta as CE, formas as F, quads as Q
+COL, NOMBRE = "LP Collection", "Escopeta_Corredera_LP"
 
-def construir(q=0.5, solver="MANIFOLD", soldar=0.3 * F.MM):
+def culata():                                   # cage: loft of rounded-rectangle sections, last ones tilted onto the joint plane
+    return F.loft("Culata_LP", secciones, COL)
+
+def cajon():                                    # loft whose stations fall on the window; pockets sunk, not cut
+    o = F.loft("Cajon_LP", secciones, COL)
+    Q.ventana(o, lambda c, n: ..., lambda co: (-9e-3, co.y, co.z))
+    return o
+
+def construir(q=0.4):
     _vaciar()
-    cuerpo = L.union_mecanizada("Cuerpo_LP", CF.solidos_cuerpo(q, COL), CF.cortes_cuerpo(q, COL), CORTES_LP, solver, soldar=soldar)
-    ex = CF.piezas_exactas(q, COL)
-    globo = L.limpiar(ex.pop("Globo"))
-    partes = [cuerpo] + [L.limpiar(o) for o in ex.values()]
-    ...                                         # material LP_Farol on partes, LP_Globo on globo (use_fake_user)
-    lp = F.unir(NOMBRE, partes); globo.name = globo.data.name = GLOBO      # two objects = two UV spaces
-    for o in (lp, globo): F.sombrear(o, 50)
-    return {"tris": ...}
-
-def juntar():                                   # after unwrapping each set
-    return F.unir(NOMBRE, [bpy.data.objects[NOMBRE], bpy.data.objects[GLOBO]])
-# plus costura_aros(e): edge predicate for the inner equator of each wire ring -> uv.desplegar(extra=costura_aros)
+    partes = {"Culata": culata(), "Cajon": cajon(), "Guardamonte": F.prisma_anillo(...)}
+    Q.ajustar(partes["Culata"], [bpy.data.objects["Culata"]])            # snap the cage to the high poly
+    partes.update(CE.piezas_exactas(q, COL))                             # same builders, lower q
+    pend = {n: c for n, o in partes.items() if (c := Q.cuadrar(o))["tris"] or c["ngonos"]}
+    ...                                         # material LP_Escopeta on every part
+    lp = F.unir(NOMBRE, list(partes.values())); F.sombrear(lp, 50)
+    return {"censo": Q.censo(lp), "pendientes": pend, "desvio": Q.desvio(lp, hp_objects)}
 ```
+
+Two texture sets: keep one object per set until both are unwrapped, then a
+`juntar()` that calls `F.unir`. Own seams are edge predicates passed to
+`uv.desplegar(extra=...)`.
 
 ## Checklist — build a new prop
 
@@ -366,7 +391,7 @@ def juntar():                                   # after unwrapping each set
 5. Write `construir_hp.py`; materials; `construir()`; geometry, assembly and decal gates.
 6. Independent check. Fix the builder, rebuild, re-gate.
 7. `estudio.vistas_previas`; compare with the photo; walk the feature list. Save.
-8. `puertas.huella` → write and run `construir_lp.py` → `huella_intacta`, `tanda.malla`, tier.
+8. `puertas.huella` → write and run `construir_lp.py` (all quads) → `huella_intacta`, `Q.censo`, `Q.desvio`, `tanda.malla`; look at `Q.lamina`.
 9. `uv.desplegar` per set → `tanda.medir_uv`, density floor → `replicar()` → `juntar()`.
 10. `tanda.hornear_y_exportar`; read `_ultimo.json`; glass materials; save.
 11. Stills, one per call; look at each.
@@ -378,6 +403,7 @@ def juntar():                                   # after unwrapping each set
 |---|---|
 | `toolkit/README.md` | first call of a session; setting up a studio template |
 | `reference/toolkit-api.md` | before calling any toolkit function |
+| `reference/quad-topology.md` | before writing `construir_lp.py`; when a face will not become a quad |
 | `reference/reference-tracing.md` | the prop is a recognisable object |
 | `reference/fictitious-brands.md` | naming a prop; changing a brand on a finished one |
 | `reference/mcp-session-limits.md` | before a bake, a render batch, or switching `.blend` |
