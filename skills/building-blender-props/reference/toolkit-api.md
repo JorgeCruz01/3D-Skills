@@ -260,3 +260,16 @@ Related additions elsewhere:
 | `L.costura_por_lado(eje, cotas, donde=None)` | UV seam predicate: border between faces on either side of a plane |
 | `M.pbr(..., polvo=, color_polvo=, altura_polvo=(z0, z1), sol=, color_sol=)` | dust rising from the floor between two object-space heights; fade on upward faces |
 | `M.relieve(..., tinte=, color_tinte=)` | also darkens the base colour in the relief's valleys |
+
+### Added with the sixteen conversions
+
+| Call | Does |
+|---|---|
+| `Q.ensamblar(name, solids, cuts=(), aspecto=40, ocultas=True)` | boolean-free cast body: squares each solid, splits long faces, deletes buried faces, joins. Replaces `L.union_mecanizada` |
+| `Q.quitar_ocultas(solids)` | deletes faces buried in another closed solid and coplanar duplicate caps; returns `(hidden, duplicates)` |
+| `Q.tramar(ob, aspecto=40, crecer=6)` | splits quads over `aspecto`:1 by subdividing the whole edge ring; stops at `crecer` x faces. Replaces `L.trocear` |
+| `Q.bloque(name, x, y, z, col, rebajes, tol)` | gridded box with pockets: `{"cara": "-Y", "rect": (a0, a1, b0, b1), "fondo": d}`, `{"cara", "centro", "r", "fondo"}` (octagonal), `"pasante": True` |
+| `F.caja_rejilla(name, xs, ys, zs, col)` | sharp box with a loop at every coordinate on its six faces |
+| `F.caja_lazos(name, x, y, levels, col, r, s, marcas)` | rounded-corner box as a loft with a loop per level and marked points per side |
+| `F.anillo_radial(exterior, interior, centro, fundir)` | paired loops for `F.prisma_anillo` from two arbitrary outlines |
+| `L.costura_tiras(step, width=None)` | UV seam predicate that cuts long narrow strips every `step` metres |

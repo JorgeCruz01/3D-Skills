@@ -124,6 +124,26 @@ def _tapar(bm, lazo, normal, apice=None):
     return nota
 
 
+def _tapar_con_aro(bm, lazo, normal, apice=None):
+    """Para contornos que la rejilla no admite (un dentado, una estrella): un
+    aro de quads hasta un lazo interior alisado y encogido, y la rejilla dentro."""
+    P = np.array([v.co[:] for v in lazo])
+    cen = P.mean(0)
+    S = P.copy()
+    for _ in range(12):
+        S = (np.roll(S, 1, 0) + 2 * S + np.roll(S, -1, 0)) / 4
+    for k in (0.8, 0.65, 0.5):
+        I = cen + (S - cen) * k
+        dentro = [bm.verts.new(q) for q in I]
+        caras = [bm.faces.new((lazo[i], lazo[(i + 1) % len(lazo)], dentro[(i + 1) % len(lazo)], dentro[i]))
+                 for i in range(len(lazo))]
+        r = _tapar(bm, dentro, normal, apice)
+        if r is not None:
+            return r
+        bmesh.ops.delete(bm, geom=dentro, context="VERTS")
+    return None
+
+
 def _lazo_de(v):
     """Vertices del anillo que rodea a un polo `v` (todas sus caras, triangulos), en orden."""
     caras = v.link_faces[:]
@@ -142,6 +162,51 @@ def _lazo_de(v):
     return lazo if x is ini and len(lazo) == len(caras) else None
 
 
+def _anillo(e, desde=None):
+    """Aristas del anillo de `e` (las opuestas a traves de quads). Con `desde`,
+    solo hacia el lado contrario a esa cara. Se para en la primera cara que no
+    es un quad."""
+    anillo, vistos = [e], {e}
+    for f0 in e.link_faces:
+        if f0 is desde:
+            continue
+        cur, f = e, f0
+        while f is not None and len(f.verts) == 4:
+            op = next(x for x in f.edges if x.verts[0] not in cur.verts and x.verts[1] not in cur.verts)
+            if op in vistos:
+                break
+            vistos.add(op)
+            anillo.append(op)
+            sig = [g for g in op.link_faces if g is not f]
+            cur, f = op, (sig[0] if len(sig) == 1 else None)
+    return anillo
+
+
+def _emparejar(bm):
+    """Deja pares los contornos impares (tapas n-gono y abanicos de polo): parte
+    por la mitad el anillo de aristas que nace de su arista mas larga. El anillo
+    recorre el costado hasta la tapa opuesta, que gana el mismo vertice. Sin
+    esto una tapa de 13 lados no admite rejilla."""
+    hechas = 0
+    for _ in range(64):
+        obj = None
+        for f in bm.faces:
+            if len(f.verts) > 4 and len(f.verts) % 2:
+                obj = (max(f.edges, key=lambda x: x.calc_length()), f)
+                break
+        if obj is None:
+            for v in bm.verts:
+                if len(v.link_faces) >= 5 and len(v.link_faces) % 2 and not v.is_boundary                         and all(len(f.verts) == 3 for f in v.link_faces):
+                    f = max(v.link_faces, key=lambda t: next(x for x in t.edges if v not in x.verts).calc_length())
+                    obj = (next(x for x in f.edges if v not in x.verts), f)
+                    break
+        if obj is None:
+            break
+        bmesh.ops.subdivide_edges(bm, edges=_anillo(*obj), cuts=1, use_grid_fill=False)
+        hechas += 1
+    return hechas
+
+
 def cuadrar(ob, soldar=0.02 * MM):
     """Convierte en rejillas de quads los n-gonos (tapas) y los abanicos de
     triangulos (polos de revolucion). No mueve ningun vertice del contorno.
@@ -150,6 +215,7 @@ def cuadrar(ob, soldar=0.02 * MM):
     bm.from_mesh(ob.data)
     if soldar:
         bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=soldar)
+    pares = _emparejar(bm)
     bm.normal_update()
     sin, hechas = [], 0
     for v in [v for v in bm.verts if len(v.link_faces) >= 5]:
@@ -172,6 +238,8 @@ def cuadrar(ob, soldar=0.02 * MM):
         vivos = set(bm.faces)
         r = _tapar(bm, lazo, normal, None if plano else apice)
         if r is None:
+            r = _tapar_con_aro(bm, lazo, normal, None if plano else apice)
+        if r is None:
             sin.append(("polo que se dobla", len(lazo)))
             bmesh.ops.contextual_create(bm, geom=lazo)
         for f in set(bm.faces) - vivos:
@@ -189,6 +257,8 @@ def cuadrar(ob, soldar=0.02 * MM):
         vivos.discard(f)
         r = _tapar(bm, lazo, normal)
         if r is None:
+            r = _tapar_con_aro(bm, lazo, normal)
+        if r is None:
             sin.append(("tapa que se dobla", len(lazo)))
             bm.faces.new(lazo)
         for g in set(bm.faces) - vivos:
@@ -199,8 +269,175 @@ def cuadrar(ob, soldar=0.02 * MM):
     bm.free()
     ob.data.update()
     c = censo(ob)
-    c.update(rejillas=hechas, sin_resolver=sin)
+    c.update(rejillas=hechas, sin_resolver=sin, emparejados=pares)
     return c
+
+
+def tramar(ob, aspecto=40.0, pasadas=200, crecer=6.0):
+    """Parte los quads de mas de `aspecto`:1 metiendo lazos a traves de su lado
+    largo (se divide el anillo entero, asi que todo sigue en quads). Sustituye a
+    `lowpoly.trocear`, que cortaba con planos y dejaba triangulos. Se detiene si
+    la malla pasa de `crecer` veces sus caras: una tira de 0.5 mm de ancho en un
+    marco de 300 mm lo llevo a 20 000 caras persiguiendo el aspecto."""
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    n = 0
+    tope = max(200, len(bm.faces) * crecer)
+    for _ in range(pasadas):
+        if len(bm.faces) > tope:
+            break
+        peor, arista = aspecto, None
+        for f in bm.faces:
+            if len(f.verts) != 4:
+                continue
+            ls = [e.calc_length() for e in f.edges]
+            a, b = max(ls[0], ls[2]), max(ls[1], ls[3])
+            corto = max(min(a, b), 1e-9)
+            r = max(a, b) / corto
+            if r > peor:
+                peor, arista = r, f.edges[0 if a >= b else 1]
+        if arista is None:
+            break
+        cortes = max(1, min(int(math.ceil(peor / (aspecto * 0.6))) - 1, 24))
+        bmesh.ops.subdivide_edges(bm, edges=_anillo(arista), cuts=cortes, use_grid_fill=True)
+        n += 1
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+    return n
+
+
+def _dentro(arbol, p):
+    """Punto dentro de una malla cerrada: paridad de cruces en tres rayos."""
+    votos = 0
+    for d in ((0.5377, 0.2811, 0.7949), (-0.6124, 0.7071, -0.3536), (0.1826, -0.9129, 0.3651)):
+        d = Vector(d)
+        o, k = Vector(p), 0
+        while k < 64:
+            h = arbol.ray_cast(o, d)
+            if h[0] is None:
+                break
+            k += 1
+            o = h[0] + d * 1e-6
+        votos += k % 2
+    return votos >= 2
+
+
+def quitar_ocultas(solidos, eps=0.05 * MM, tol=0.02 * MM):
+    """Borra de cada solido las caras que nadie puede ver porque quedan dentro
+    de OTRO solido del mismo grupo, y las duplicadas (dos tapas coplanares que
+    miran al mismo lado: se queda la del solido que la contiene). Una cara es
+    oculta si sus nueve muestras (centro, vertices, medios de arista), sacadas
+    `eps` hacia fuera, caen dentro de algun otro solido cerrado. El borde que
+    queda abierto esta enterrado. Devuelve (ocultas, duplicadas)."""
+    from mathutils.bvhtree import BVHTree
+    datos = []
+    for o in solidos:
+        bm = bmesh.new()
+        bm.from_mesh(o.data)
+        bm.transform(o.matrix_world)
+        bm.normal_update()
+        cerrado = all(len(e.link_faces) == 2 for e in bm.edges)
+        P = np.array([v.co[:] for v in bm.verts]) if bm.verts else np.zeros((1, 3))
+        datos.append(dict(bm=bm, arbol=BVHTree.FromBMesh(bm), lo=P.min(0) - 2 * tol, hi=P.max(0) + 2 * tol, cerrado=cerrado))
+    n = len(solidos)
+    ocultas = [set() for _ in range(n)]
+    coinc = {}
+    for i, d in enumerate(datos):
+        otros = [j for j in range(n) if j != i and np.all(datos[j]["lo"] <= d["hi"]) and np.all(d["lo"] <= datos[j]["hi"])]
+        if not otros:
+            continue
+        cache = {}
+
+        def dentro(p, clave=None):
+            if clave is not None and clave in cache:
+                return cache[clave]
+            r = False
+            for j in otros:
+                e = datos[j]
+                if e["cerrado"] and all(e["lo"][k] < p[k] < e["hi"][k] for k in range(3)) and _dentro(e["arbol"], p):
+                    r = True
+                    break
+            if clave is not None:
+                cache[clave] = r
+            return r
+        for f in d["bm"].faces:
+            nrm = f.normal
+            pts = [f.calc_center_median()] + [v.co for v in f.verts] + [(e.verts[0].co + e.verts[1].co) / 2 for e in f.edges]
+            if all(dentro(p + nrm * eps) for p in pts):
+                ocultas[i].add(f.index)
+                continue
+            for j in otros:
+                e = datos[j]
+                ok = True
+                for p in pts:
+                    h = e["arbol"].find_nearest(p, tol)
+                    if h[0] is None or h[1].dot(nrm) < 0.95:
+                        ok = False
+                        break
+                if ok:
+                    coinc.setdefault((i, j), []).append(f)
+    dup = [set() for _ in range(n)]
+    for (i, j), fs in coinc.items():
+        if i > j and (j, i) in coinc:
+            continue
+        a = sum(f.calc_area() for f in fs)
+        gs = coinc.get((j, i), [])
+        b = sum(f.calc_area() for f in gs)
+        if a > b * 1.001 or (abs(a - b) <= b * 0.001 and i > j) or not gs:
+            dup[i].update(f.index for f in fs)
+        else:
+            dup[j].update(f.index for f in gs)
+    tot_o = tot_d = 0
+    for i, o in enumerate(solidos):
+        quitar = ocultas[i] | dup[i]
+        datos[i]["bm"].free()
+        if not quitar or len(quitar) >= len(o.data.polygons):
+            continue
+        tot_o += len(ocultas[i])
+        tot_d += len(dup[i] - ocultas[i])
+        bm = bmesh.new()
+        bm.from_mesh(o.data)
+        bm.faces.ensure_lookup_table()
+        bmesh.ops.delete(bm, geom=[bm.faces[k] for k in quitar], context="FACES")
+        bm.to_mesh(o.data)
+        bm.free()
+        o.data.update()
+    return tot_o, tot_d
+
+
+def ensamblar(nombre, solidos, cortes=(), aspecto=40.0, ocultas=True):
+    """Low poly de una pieza de fundicion SIN booleano: los mismos solidos que
+    `lowpoly.union_mecanizada`, cada uno cuadrado por separado y unidos en un
+    objeto donde se cruzan. La silueta es la de la union; lo que cambia es que
+    no hay arista compartida en los encuentros. Las caras enterradas del todo
+    en otro solido se borran (`quitar_ocultas`). Los `cortes` se descartan: lo
+    que deba cambiar la silueta se construye ya en los solidos (perfil con
+    hueco, `prisma_anillo`, `ventana`)."""
+    for c in cortes:
+        d = c.data
+        bpy.data.objects.remove(c)
+        if d.users == 0:
+            bpy.data.meshes.remove(d)
+    sin = []
+    for o in solidos:
+        r = cuadrar(o)
+        if r["sin_resolver"] or r["tris"] or r["ngonos"]:
+            sin.append((o.name, r["sin_resolver"], r["tris"], r["ngonos"]))
+        if aspecto:
+            tramar(o, aspecto)
+    quitadas = list(quitar_ocultas(solidos)) if ocultas and len(solidos) > 1 else [0, 0]
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in solidos:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = solidos[0]
+    if len(solidos) > 1:
+        bpy.ops.object.join()
+    ob = solidos[0]
+    ob.name = ob.data.name = nombre
+    ob["sin_resolver"] = str(sin)
+    ob["ocultas"] = quitadas
+    return ob
 
 
 # ------------------------------------------------------------------ remallado en quads
@@ -308,6 +545,95 @@ def ventana(ob, dentro, fondo, soldar=0.0):
     bm.free()
     ob.data.update()
     return len(caras)
+
+
+def bloque(nombre, x, y, z, coleccion, rebajes=(), tol=0.4 * MM):
+    """Bloque mecanizado sin booleano: una caja con rejilla (`formas.caja_rejilla`)
+    cuyos lazos caen en los bordes de cada rebaje, y los rebajes abiertos con
+    `ventana`. `x`, `y`, `z`: (minimo, maximo) en metros. Cada rebaje:
+
+        {"cara": "-Y", "rect": (a0, a1, b0, b1), "fondo": profundidad}
+        {"cara": "+Z", "centro": (a, b), "r": radio, "fondo": profundidad}
+
+    `a`, `b` son los dos ejes del plano de la cara, en orden XYZ (cara +-Y:
+    x, z). El rebaje redondo sale octogonal (el mapa de normales lo redondea).
+    Con "pasante": True el rebaje atraviesa el bloque (no hace falta "fondo"):
+    se hunde hasta la cara opuesta y se borran su suelo y las caras de enfrente,
+    que coinciden porque la rejilla es la misma en las dos caras.
+    Las cotas a menos de `tol` de un lazo ya existente se llevan a el: dos
+    lazos a 0.1 mm dejan una tira de caras de 300:1."""
+    import formas
+    lim = [tuple(x), tuple(y), tuple(z)]
+    lineas = [list(l) for l in lim]
+
+    def anadir(eje, v):
+        if lim[eje][0] + tol < v < lim[eje][1] - tol and all(abs(v - w) >= tol for w in lineas[eje]):
+            lineas[eje].append(v)
+
+    def cerca(eje, v):
+        return min(lineas[eje], key=lambda w: abs(w - v))
+    prep = []
+    for r in rebajes:
+        n = "XYZ".index(r["cara"][1])
+        sg = -1.0 if r["cara"][0] == "-" else 1.0
+        a, b = [k for k in range(3) if k != n]
+        if "r" in r:
+            ca, cb = r["centro"]
+            R, k = r["r"], r["r"] * 0.41421356
+            la, lb = [ca - R, ca - k, ca + k, ca + R], [cb - R, cb - k, cb + k, cb + R]
+        else:
+            la, lb = list(r["rect"][:2]), list(r["rect"][2:])
+        for v in la:
+            anadir(a, v)
+        for v in lb:
+            anadir(b, v)
+        prep.append((n, sg, a, b, la, lb, r))
+    ob = formas.caja_rejilla(nombre, sorted(lineas[0]), sorted(lineas[1]), sorted(lineas[2]), coleccion)
+    hechos = 0
+    for n, sg, a, b, la, lb, r in prep:
+        la, lb = [cerca(a, v) for v in la], [cerca(b, v) for v in lb]
+        p = lim[n][1] if sg > 0 else lim[n][0]
+        q_ = lim[n][0] if sg > 0 else lim[n][1]          # cara opuesta
+        pasante = bool(r.get("pasante"))
+        hondo = abs(p - q_) if pasante else r["fondo"]
+        if "r" in r:                    # las cuatro esquinas del cuadrado pasan a la diagonal del octogono
+            ca, cb = (la[0] + la[-1]) / 2, (lb[0] + lb[-1]) / 2
+            ra, rb = (la[-1] - la[0]) / 2 * 0.70710678, (lb[-1] - lb[0]) / 2 * 0.70710678
+            for v in ob.data.vertices:
+                en_cara = abs(v.co[n] - p) < 1e-7 or (pasante and abs(v.co[n] - q_) < 1e-7)
+                if en_cara and min(abs(v.co[a] - la[0]), abs(v.co[a] - la[-1])) < 1e-7 \
+                        and min(abs(v.co[b] - lb[0]), abs(v.co[b] - lb[-1])) < 1e-7:
+                    v.co[a] = ca + (ra if v.co[a] > ca else -ra)
+                    v.co[b] = cb + (rb if v.co[b] > cb else -rb)
+
+        def dentro(c, nrm, n=n, sg=sg, a=a, b=b, la=la, lb=lb, p=p):
+            return nrm[n] * sg > 0.9 and abs(c[n] - p) < 1e-6 and la[0] < c[a] < la[-1] and lb[0] < c[b] < lb[-1]
+
+        def fondo(co, n=n, sg=sg, p=p, f=hondo):
+            q = Vector(co)
+            q[n] = p - sg * f
+            return q
+        hechos += 1 if ventana(ob, dentro, fondo) else 0
+        if pasante:
+            # el suelo del rebaje coincide con las caras de enfrente (misma rejilla): se borran ambos
+            bm = bmesh.new()
+            bm.from_mesh(ob.data)
+            bm.normal_update()
+            quitar = []
+            for f in bm.faces:
+                c = f.calc_center_median()
+                if abs(c[n] - q_) < 1e-6 and abs(f.normal[n]) > 0.9 and la[0] < c[a] < la[-1] and lb[0] < c[b] < lb[-1]:
+                    quitar.append(f)
+            bmesh.ops.delete(bm, geom=quitar, context="FACES")
+            junto = [v for v in bm.verts if abs(v.co[n] - q_) < 1e-6 and la[0] - 1e-6 < v.co[a] < la[-1] + 1e-6
+                     and lb[0] - 1e-6 < v.co[b] < lb[-1] + 1e-6]
+            bmesh.ops.remove_doubles(bm, verts=junto, dist=1e-6)
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+            bm.to_mesh(ob.data)
+            bm.free()
+            ob.data.update()
+    ob["rebajes"] = "%d de %d" % (hechos, len(prep))
+    return ob
 
 
 # ------------------------------------------------------------------ lamina de control

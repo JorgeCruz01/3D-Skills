@@ -266,3 +266,36 @@ def quitar_proxy(nombre):
         d = o.data
         bpy.data.objects.remove(o)
         bpy.data.meshes.remove(d)
+
+
+def costura_tiras(paso, ancho=None, ejes="XYZ"):
+    """Predicado de costura UV: parte las TIRAS largas (el canto de una placa de
+    2.5 m de perimetro y 16 mm de alto, una columna) cada `paso` metros a lo
+    largo de cada eje. Una tira entera obliga a encoger todo el atlas: el
+    soporte de un motor se quedaba en el 18 % de ocupacion. Solo corta entre
+    caras estrechas (menos de `ancho`, por defecto paso / 4, en la direccion
+    transversal), asi que una cara grande y plana no se trocea."""
+    from mathutils import Vector
+    ancho = paso / 4 if ancho is None else ancho
+    ax = [Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1))]
+
+    def estrecha(f, k):
+        t = f.normal.cross(ax[k])
+        if t.length < 1e-6:
+            return False
+        t.normalize()
+        d = [v.co.dot(t) for v in f.verts]
+        return max(d) - min(d) < ancho
+
+    def f(e):
+        if len(e.link_faces) != 2:
+            return False
+        a, b = e.link_faces
+        ca, cb = a.calc_center_median(), b.calc_center_median()
+        for k in range(3):
+            if "XYZ"[k] not in ejes or abs(a.normal[k]) > 0.3 or abs(b.normal[k]) > 0.3:
+                continue
+            if int(ca[k] // paso) != int(cb[k] // paso) and estrecha(a, k) and estrecha(b, k):
+                return True
+        return False
+    return f

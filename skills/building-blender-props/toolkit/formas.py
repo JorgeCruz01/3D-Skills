@@ -239,6 +239,56 @@ def prisma_anillo(nombre, exterior, interior, origen, eje, alto, coleccion, tram
     return _objeto(nombre, verts, caras, coleccion, suave)
 
 
+def anillo_radial(exterior, interior, centro=None, fundir=1.0):
+    """Empareja dos lazos cerrados (M,2) y (K,2) para `prisma_anillo`: una placa
+    con un hueco de cualquier forma. Se lanza un rayo desde `centro` (por
+    defecto el del hueco) por cada vertice de ambos lazos; cada rayo da un punto
+    en el exterior y otro en el interior. Asi todos los vertices de los dos
+    contornos quedan en la malla (las esquinas no se pierden) y las tapas son
+    una tira de quads. El exterior debe verse entero desde `centro` (estrellado).
+    `fundir` (grados): dos rayos mas juntos que eso se quedan en uno, con
+    preferencia por el del exterior. Devuelve (E, I), en sentido antihorario."""
+    E0, I0 = np.asarray(exterior, float), np.asarray(interior, float)
+    c = I0.mean(0) if centro is None else np.asarray(centro, float)
+
+    def corte(P, ang):
+        d = np.array([math.cos(ang), math.sin(ang)])
+        mejor = None
+        for a, b in zip(P, np.roll(P, -1, 0)):
+            e = b - a
+            den = d[0] * e[1] - d[1] * e[0]
+            if abs(den) < 1e-15:
+                continue
+            w = a - c
+            t = (w[0] * e[1] - w[1] * e[0]) / den
+            u = (w[0] * d[1] - w[1] * d[0]) / den
+            if t > 1e-12 and -1e-9 <= u <= 1 + 1e-9 and (mejor is None or t < mejor):
+                mejor = t
+        return None if mejor is None else c + d * mejor
+    angs = [(math.atan2(p[1] - c[1], p[0] - c[0]) % (2 * math.pi), 0, tuple(p)) for p in E0]
+    angs += [(math.atan2(p[1] - c[1], p[0] - c[0]) % (2 * math.pi), 1, tuple(p)) for p in I0]
+    tol = math.radians(fundir)
+
+    def lejos(a, otros):
+        return all(min(abs(a - b), 2 * math.pi - abs(a - b)) >= tol for b in otros)
+    # los vertices del exterior se quedan TODOS (fundir dos dejaba una muesca en cada esquina de un sector de brida);
+    # los del interior solo entran si no caen junto a un rayo que ya esta
+    elegidos = [t for t in angs if t[1] == 0]
+    for t in angs:
+        if t[1] == 1 and lejos(t[0], [e[0] for e in elegidos]):
+            elegidos.append(t)
+    elegidos.sort()
+    E, I = [], []
+    for a, tipo, p in elegidos:
+        pe = np.array(p) if tipo == 0 else corte(E0, a)
+        pi = np.array(p) if tipo == 1 else corte(I0, a)
+        if pe is None or pi is None:
+            continue
+        E.append(pe)
+        I.append(pi)
+    return np.array(E), np.array(I)
+
+
 def remuestrear(puntos, n, cerrada=False):
     """`n` + 1 puntos (o `n` si es cerrada) equidistantes a lo largo de la polilinea."""
     P = np.asarray(puntos, float)
@@ -286,6 +336,60 @@ def caja(nombre, x, y, z, coleccion, r=0.0, s=0):
     w, h = x[1] - x[0], y[1] - y[0]
     return prisma(nombre, perfil_rect(w, h, r, s), ((x[0] + x[1]) / 2, (y[0] + y[1]) / 2, z[0]), "Z",
                   z[1] - z[0], coleccion)
+
+
+def caja_lazos(nombre, x, y, niveles, coleccion, r=0.0, s=3, marcas=None, suave=False):
+    """Caja de esquinas verticales redondeadas construida como loft de secciones
+    en z, con un lazo horizontal en cada cota de `niveles` y puntos extra en sus
+    lados: `marcas` = {lado: [cotas]}, lados 'x0', 'x1' (cotas en y) e 'y0',
+    'y1' (cotas en x). Las ventanas y rebajes que se abren despues con
+    `quads.ventana` caen asi exactamente sobre aristas de la malla, sin
+    booleano. Metros. El numero de puntos del contorno debe quedar par."""
+    marcas = marcas or {}
+    x0, x1 = x
+    y0, y1 = y
+    pts = []
+    lados = (("x1", sorted(marcas.get("x1", ()))), ("y1", sorted(marcas.get("y1", ()), reverse=True)),
+             ("x0", sorted(marcas.get("x0", ()), reverse=True)), ("y0", sorted(marcas.get("y0", ()))))
+    for (cx, cy, a0), (lado, cotas) in zip(((x1 - r, y0 + r, -90), (x1 - r, y1 - r, 0), (x0 + r, y1 - r, 90), (x0 + r, y0 + r, 180)), lados):
+        if r > 0 and s > 0:
+            for k in range(s + 1):
+                a = math.radians(a0 + 90 * k / s)
+                pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+        else:
+            pts.append({-90: (x1, y0), 0: (x1, y1), 90: (x0, y1), 180: (x0, y0)}[a0])
+        for c in cotas:
+            pts.append({"x1": (x1, c), "y1": (c, y1), "x0": (x0, c), "y0": (c, y0)}[lado])
+    P = np.array(pts)
+    return loft(nombre, [np.column_stack([P, np.full(len(P), z)]) for z in niveles], coleccion, suave)
+
+
+def caja_rejilla(nombre, xs, ys, zs, coleccion, suave=False):
+    """Caja de cantos vivos con una rejilla de quads en sus seis caras: un lazo
+    en cada cota de `xs`, `ys`, `zs` (listas ordenadas; la primera y la ultima
+    son las caras). Es la base de un bloque mecanizado sin booleano: cada
+    rebaje rectangular alineado con la rejilla se abre con `quads.ventana`."""
+    L = [list(xs), list(ys), list(zs)]
+    n = [len(l) for l in L]
+    idx, verts, caras = {}, [], []
+
+    def v(i, j, k):
+        if (i, j, k) not in idx:
+            idx[(i, j, k)] = len(verts)
+            verts.append((L[0][i], L[1][j], L[2][k]))
+        return idx[(i, j, k)]
+    for eje in range(3):
+        a, b = [e for e in range(3) if e != eje]
+        for lado in (0, n[eje] - 1):
+            for i in range(n[a] - 1):
+                for j in range(n[b] - 1):
+                    q = []
+                    for da, db in ((0, 0), (1, 0), (1, 1), (0, 1)):
+                        t = [0, 0, 0]
+                        t[eje], t[a], t[b] = lado, i + da, j + db
+                        q.append(v(*t))
+                    caras.append(tuple(q))
+    return _objeto(nombre, verts, caras, coleccion, suave)
 
 
 def caja_blanda(nombre, x, y, z, coleccion, r, s=6, canto=None, sc=4):
