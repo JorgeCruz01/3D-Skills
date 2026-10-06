@@ -99,3 +99,48 @@ The IoU and the difference image for each square-on reference, the
 side-by-side image, and the list of differences that remain, including the
 deliberate ones (no logo, different symbols) so they are not mistaken for
 misses.
+
+## When the low poly, not the high poly, is what looks wrong
+
+Measured on a guitar whose textures were rejected: the high poly was fine and
+every gate passed. The pickguard's cap had been filled with a Coons grid over
+a concave outline; faces folded OUTSIDE the outline and the bake left wedges
+of wood on the black and of black on the wood. No gate saw it.
+
+- Render the baked low poly close up (`entrega._ver(hp=False, lp=True)` +
+  `estudio.vistas_previas("LP Collection", ...)`) before the stills.
+- A concave outline is split into pieces that are simple by rows and built as
+  `piel.losa` strips with a section at every vertex of the fine outline.
+
+## Slab profiles read as poor
+
+Two props were rejected for form although their gates mostly passed: a
+submachine gun made of four profile slabs with rounded edges, and a bow made
+of constant-section members. What fixed the first one:
+
+1. Read the photo in crops with a grid LABELLED in true millimetres.
+2. Give each body its own section (`chapa.cuerpo_x`): flat sides, a round
+   roof, a belly radius that changes along the part.
+3. Cast it (`colada.colar`) and CUT the real features: slots, pockets, pin
+   seats, grooves. Painted rectangles standing in for slots were the tell.
+4. Low poly = the same lofts with few stations and no cuts.
+
+High poly 147k -> 1.27M faces, silhouette IoU 0.883 -> 0.918, UV 57 -> 65 %.
+Check in clay (`entrega.arcilla`): if the form does not hold without
+texture, it is not done.
+
+## A reference that is only a three-quarter photo
+
+1. Fit a camera to it (`camara_foto`), from two published lengths on two axes
+   plus least squares on a handful of landmarks.
+2. Rectify the photo onto known planes (`rectificar.lamina`): the near face of
+   the stock gives a profile, the cam plane gives a plan view.
+3. Read each feature ONLY on the sheet of its own plane. Off-plane features
+   shift by `tan(view angle)` per millimetre: 1.24 mm sideways per mm of
+   height on a plan sheet seen from 36 degrees. Round parts read on a vertical
+   sheet come out inflated by 1/cos(elevation).
+4. Confirm single points with `camara_foto.en_plano` at the height they really
+   have, and overlay the model's contour on the photo.
+5. Hide the low-poly collection before measuring the silhouette: with a stale
+   low poly visible, four iterations were steered by the wrong mask.
+

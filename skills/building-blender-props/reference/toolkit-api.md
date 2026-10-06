@@ -292,3 +292,17 @@ Related additions elsewhere:
 | `parecido.mascara_ref(path, modo, recorte)` / `mascara_modelo(col, desde, arriba, res, ocultar)` | the two silhouettes |
 | `parecido.comparar(ref_mask, model_mask, salida)` | scale, best shift, IoU, missing %, extra % |
 | `parecido.lado_a_lado(ref, col, desde, arriba, salida)` | reference and orthographic render side by side |
+
+### Added after the second batch's rejected props
+
+| Call | Does |
+|---|---|
+| `entrega.arcilla(nombre, direccion, fichero="05_arcilla_ao.png", gris=0.62, alcance=0.06)` | still of the HIGH POLY in grey clay with ambient occlusion multiplied in, same lights and camera as the hero. Shows form without texture: run it BEFORE calling a prop done |
+| `chapa.seccion(w, zb, zt, R, rb, n, nb)` / `chapa.cuerpo_x(nombre, cont, col, w, R, rb, xs, n, nb, rx, dz, zb, y0)` | body lofted over a profile outline with its OWN cross-section (flat sides, shoulder radii, width as a function of x). Replaces `piel.losa` for receivers, frames, stocks |
+| `chapa.estaciones(cont, fino, paso, extra, tramo_lp)` | x stations: dense for the high poly; outline vertices plus one every `tramo_lp` for the low poly; steps 0.6 mm in from a pointed end |
+| `chapa.prisma_y` / `chapa.prisma_z` | prism of an (x, z) or (x, y) outline between two coordinates: plates, levers, through cutters |
+| `chapa.surco(nombre, eje, r, col)` / `chapa.linea(p0, p1)` | groove cutter along a rising line, rounded ends |
+| `chapa.anillos(r, alto, k)` / `chapa.moleteado(nombre, r, eje, a, b, centro, col, dientes)` | turned button profile with concentric rings; straight-knurled ring |
+| `camara_foto.afin / poner / mascara / comparar / en_plano / proyectar` | perspective camera matched to a three-quarter photo: pixel-exact silhouette IoU, back-projection of a pixel onto an assumed plane, projection of a world point |
+| `rectificar.lamina(foto, cam, eje, valor, u, v, salida, px_mm)` | resamples an oblique photo onto a world plane: an orthographic profile or plan with a millimetre grid. No Blender needed |
+

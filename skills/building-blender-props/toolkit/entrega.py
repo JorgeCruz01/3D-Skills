@@ -91,6 +91,34 @@ def still(nombre, fichero, direccion, res=(3840, 2160), samples=160, margen=0.02
     return {"ruta": ruta, "ok": os.path.exists(ruta), "encuadre": e["all_inside"], "t": dt}
 
 
+def arcilla(nombre, direccion, fichero="05_arcilla_ao.png", gris=0.62, alcance=0.06, **kw):
+    """Still del HIGH POLY en arcilla gris con la oclusion multiplicada, bajo las mismas luces y la misma camara
+    que el hero: ensena la forma sin textura. `alcance`: distancia de la oclusion como fraccion de la diagonal del
+    prop. El AO solo, sin luces, sale plano y sobre el ciclorama blanco el modelo se pierde: por eso va con luces."""
+    m = bpy.data.materials.get("_Arcilla_AO") or bpy.data.materials.new("_Arcilla_AO")
+    m.use_nodes = True
+    nt = m.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    b = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    ao = nt.nodes.new("ShaderNodeAmbientOcclusion")
+    lo, hi = estudio._bbox(HP)
+    ao.inputs["Color"].default_value = (gris, gris, gris, 1)
+    ao.inputs["Distance"].default_value = (hi - lo).length * alcance
+    ao.samples = 16
+    b.inputs["Roughness"].default_value = 0.62
+    nt.links.new(ao.outputs["Color"], b.inputs["Base Color"])
+    nt.links.new(b.outputs["BSDF"], out.inputs["Surface"])
+    vl = bpy.context.view_layer
+    previo = vl.material_override
+    vl.material_override = m
+    try:
+        return still(nombre, fichero, direccion, **kw)
+    finally:
+        vl.material_override = previo
+        bpy.data.materials.remove(m)
+
+
 def laminas_tecnicas(nombre, objetos_lp, mapas, solo_alambre=(), tambien=(), grosor=0.0005):
     """Split con una sola camara, wireframe, hoja UV y tira de mapas."""
     R = prop.rutas(nombre)
