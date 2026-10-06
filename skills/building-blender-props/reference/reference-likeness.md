@@ -129,6 +129,36 @@ High poly 147k -> 1.27M faces, silhouette IoU 0.883 -> 0.918, UV 57 -> 65 %.
 Check in clay (`entrega.arcilla`): if the form does not hold without
 texture, it is not done.
 
+## Moulded bodies: inflate the profile
+
+A stock built as section lofts with its thumbhole cut by a prism kept sharp
+edges at every hole and every member end, and read as a board in clay even
+with near-oval sections. `inflado.inflar` takes the profile polygons (members
+unioned, holes subtracted) and makes the thickness fall towards every edge:
+
+1. One polygon per member with its own half width; a hole is a polygon in
+   `huecos`, not a cutter. Spline the organic outlines, leave housings raw.
+2. `D` 7–9 mm for a 45 mm wide polymer stock. At 11–15 the lower edges lost
+   silhouette against the photo.
+3. Add swells with `extra` (a gaussian for the palm, one for the fore-end
+   belly). Keep bolted covers as separate section lofts so they stay crisp.
+4. Cast it with light smoothing, `(6, 3)`: the roll is already in the field,
+   smoothing only removes the 0.5 mm grid steps.
+5. Low poly: one loft per member with the section the field leaves (flat
+   side, elliptical caps `D` high and W wide), visible ends closed with the
+   same roll, members around a hole instead of the hole. Circular shoulders
+   and square ends overshot the high poly's silhouette by 3 %; this gave 2 %.
+   Keep the cap height under half the member height or the weld leaves
+   triangles.
+
+Smoothing the thickness normalised by the mask raises the rim back into a
+wall; smooth it unnormalised.
+
+Then lay the model's silhouette over the photo with the photo's camera: a
+uniform offset of a whole region (stock 12 mm forward, 7 mm high) is the
+parallax of the plane the sheet was read on, and is fixed by one shift of
+its outlines, not point by point.
+
 ## A reference that is only a three-quarter photo
 
 1. Fit a camera to it (`camara_foto`), from two published lengths on two axes

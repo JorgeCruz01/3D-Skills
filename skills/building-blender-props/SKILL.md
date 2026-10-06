@@ -34,9 +34,9 @@ phases with a different high poly: blender-props:building-blender-soft-goods.
 ├─ Texturas/                  TX_<Set>_{BaseColor,Normal,ORM}.png at 4096², uv.png, maps.png
 │  ├─ Fuente/                 CC0 PBR bases used, by id
 │  └─ Bakes/                  AO, RM, bake_log.json
-├─ Renders/Stills/            4 stills of the HIGH poly, 3840×2160
+├─ Renders/Stills/            4 stills of the HIGH poly + 05_arcilla_ao.png, 3840×2160
 ├─ Renders/Topologia/         split.png, split_render.png, wireframe.png
-├─ Renders/Portafolio/        render, split, wireframe, uv, maps .webp + asset.json
+├─ Renders/Portafolio/        render, split, wireframe, uv, maps, clay .webp + asset.json
 └─ Exportados/                <Prop_Name>_LP.fbx, .glb
 ```
 
@@ -90,7 +90,7 @@ Binding. Touching a phase invalidates everything after it.
 | 7 | UV | `uv.desplegar(names_of_one_set, extra=...)` per set | `tanda.medir_uv`, `puertas.piso_densidad` |
 | 8 | Replicas, join | `construir_lp.replicar()`, `construir_lp.juntar()` | triangle count, material slots, 1 UV layer |
 | 9 | Bake + export | `tanda.hornear_y_exportar(...)` | `_ultimo.json`: textures on disk, silhouette ×3, fidelity, FBX round-trip |
-| 10 | Stills | `entrega.still(...)`, one per call | file exists, `encuadre` true |
+| 10 | Stills | `entrega.still(...)`, one per call; `entrega.arcilla(...)` | file exists, `encuadre` true; clay still matches the hero |
 | 11 | Sheets, package | `tanda.cerrar(...)` | `split` (same camera) true, 5 `.webp`, `.blend` on disk |
 | 12 | README, `asset.json` | write | every figure measured; every miss declared |
 
@@ -132,6 +132,7 @@ Cast or exact?
 | exact solids (`F.revolucion`, `F.prisma`, `F.cil`, `F.barrido`, `F.tubo`) | turned parts, glass, wire, fasteners, knurled caps, shafts: crisp edges and clean topology at any `q` | lantern globe, burner, cap, guard, handle |
 | `exactos=` of `colar` | machined volumes on a casting that must stay crisp | lathe ways and slides, casting at `suavizado=16` |
 | flat prism + `F.fundir` with heavy smoothing | soft-edged slabs with a traced outline | revolver stocks, after offset rings self-crossed |
+| `inflado.inflar` (profile inflated by distance to its edge), then cast | moulded stocks, grips, ergonomic housings with holes: every edge rolls, inner ones too, and the width varies in both directions | crossbow stock, after section lofts with prism-cut holes read as a cut-out board |
 
 Outlines drawn with a dozen points go through `F.spline`; visible boxes are
 `F.caja_blanda`; bevels on concave or elongated outlines use
@@ -245,6 +246,11 @@ tanda.hornear_y_exportar(NOMBRE, L.NOMBRE, H.solidos(), ("Farol", "Globo"), hero
 - Four stills of the high poly, one MCP call each:
   `entrega.still(NOMBRE, "01_hero.png", (0.45, -1.0, 0.3))`, a rear, a front or
   side, and `04_detalle_<feature>.png` with `margen=-0.25` … `-0.55`.
+- A fifth, mandatory: `entrega.arcilla(NOMBRE, hero)` writes
+  `05_arcilla_ao.png`, the high poly in grey clay with ambient occlusion under
+  the hero's camera and lights; its `.webp` goes in the package as `clay.webp`.
+  Render it small during phase 3 too: a form that does not hold in clay is not
+  ready for a low poly. Standard and traps: `reference/clay-ao-still.md`.
 - `tanda.cerrar(NOMBRE, L.NOMBRE, sets, hero, esperados, grosor)` renders the
   split with ONE camera pointed like the hero, the wireframe, `uv.png`,
   `maps.png`, converts the five `.webp`, saves and checks the file on disk.
@@ -278,7 +284,7 @@ changed. Include what was caught reviewing the constants before building.
 
 `asset.json` has an `es` and an `en` block with `id`, `name`, `software`,
 `tris`, `pieces`, `textureSets`, `textureResolution`, `mapsPerSet`, the five
-image URLs, `note` (one measured sentence) and `usedIn`.
+image URLs plus `clayUrl`, `note` (one measured sentence) and `usedIn`.
 
 ## Skeleton
 

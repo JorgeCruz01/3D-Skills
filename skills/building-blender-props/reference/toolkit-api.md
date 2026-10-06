@@ -298,6 +298,9 @@ Related additions elsewhere:
 | Call | Does |
 |---|---|
 | `entrega.arcilla(nombre, direccion, fichero="05_arcilla_ao.png", gris=0.62, alcance=0.06)` | still of the HIGH POLY in grey clay with ambient occlusion multiplied in, same lights and camera as the hero. Shows form without texture: run it BEFORE calling a prop done |
+| `inflado.inflar(nombre, partes, col, huecos=(), D=12.0, paso=0.5, exp=2.0, difuminado=8.0, extra=None, y0=0.0, esbeltez=2.2, alisado=3.0)` | moulded body from a profile: half thickness = W(x, z) × edge(d / D), `d` the distance to the outline, holes included. `partes`: `[(polygon (x, z) in mm, half width or f(x))]`, unioned; `huecos`: polygons subtracted; `D`: roll radius, number or f(X, Z); `extra(X, Z)`: mm added to the half width (palm swell). Returns a two-sheet grid mesh for `colada.colar`, never a final mesh. Members narrower than 2 D get the roll spread over their own half height; `esbeltez` caps width at that many half heights |
+| `inflado.campo(...)` | the same field without the mesh: `(x, z, mask, t)` |
+| `entrega.arcilla(..., ocultar=(...), res=, samples=)` | extra arguments go through to `still`: hide transparent parts; render small while modelling. Standard: `clay-ao-still.md` |
 | `chapa.seccion(w, zb, zt, R, rb, n, nb)` / `chapa.cuerpo_x(nombre, cont, col, w, R, rb, xs, n, nb, rx, dz, zb, y0)` | body lofted over a profile outline with its OWN cross-section (flat sides, shoulder radii, width as a function of x). Replaces `piel.losa` for receivers, frames, stocks |
 | `chapa.estaciones(cont, fino, paso, extra, tramo_lp)` | x stations: dense for the high poly; outline vertices plus one every `tramo_lp` for the low poly; steps 0.6 mm in from a pointed end |
 | `chapa.prisma_y` / `chapa.prisma_z` | prism of an (x, z) or (x, y) outline between two coordinates: plates, levers, through cutters |
