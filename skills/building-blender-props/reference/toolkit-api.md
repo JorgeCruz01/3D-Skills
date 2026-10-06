@@ -106,7 +106,7 @@ Constants: `L.GRUPO_REPLICAS = "Replicas"`, `L.PLANOS` (slice planes recorded by
 |---|---|---|
 | `pbr(nombre, mapas, tinte=(1,1,1), tam_m=0.25, rough=(0.0,1.0), metal=None, normal=1.0, suciedad=0.35, color_suciedad=(0.05,0.04,0.03), desgaste=0.0, color_desgaste=(0.8,0.8,0.8), transmision=0.0, ior=1.45, mezcla_tinte=1.0, manchas=0.0, color_manchas=(0.06,0.05,0.04), escala_manchas=9.0, desconchado=0.0, escala_desconchado=45.0)` | material | box-projected PBR (`mapas` from `texturas.descargar_pbr`, or `{}`) × tint, plus cavity dirt (AO node), edge wear (Pointiness), stains and chips. `tam_m` = metres per tile; `rough` = (add, factor). Drop the `color` key to keep only relief and roughness under a flat tint |
 | `asignar(objeto, material, limpiar=True)` | slot index | append a material to an object by name |
-| `relieve(nombre, tipo, paso, fondo, caja=None, x_min=None, angulo=30.0)` | material | add shader bump to an existing material: `"picado"` (checkering) or `"hoyuelos"` (dimples). `paso`, `fondo` in metres |
+| `relieve(nombre, tipo, paso, fondo, caja=None, x_min=None, angulo=30.0, plano="YZ")` | material | add shader bump to an existing material: `"picado"` (checkering) or `"hoyuelos"` (dimples). `paso`, `fondo` in metres. `plano="XZ"` when the checkered faces lie in XZ (a rifle along X): with the default the pattern came out as stripes |
 
 ## texturas — CC0 downloads (`import texturas`)
 

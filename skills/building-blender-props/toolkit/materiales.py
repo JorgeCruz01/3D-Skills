@@ -281,7 +281,7 @@ def asignar(objeto, material, limpiar=True):
     return len(ob.data.materials) - 1
 
 
-def relieve(nombre, tipo, paso, fondo, caja=None, x_min=None, angulo=30.0, tinte=0.0, color_tinte=(0.25, 0.25, 0.25)):
+def relieve(nombre, tipo, paso, fondo, caja=None, x_min=None, angulo=30.0, tinte=0.0, color_tinte=(0.25, 0.25, 0.25), plano="YZ"):
     """Anade a un material ya creado un relieve fino por sombreado (nodo Bump), en
     coordenadas de objeto, para detalle que no merece geometria y que el bake si
     recoge en el mapa de normales.
@@ -316,6 +316,10 @@ def relieve(nombre, tipo, paso, fondo, caja=None, x_min=None, angulo=30.0, tinte
         return n.outputs[0]
 
     y, z, x = sep.outputs["Y"], sep.outputs["Z"], sep.outputs["X"]
+    if plano == "XZ":
+        # la pieza tiene sus costados en el plano XZ (un fusil a lo largo de X): con el plano YZ por defecto el
+        # picado salia en rayas, porque en esas caras Y no cambia
+        y, x = x, y
     if tipo == "picado":
         k = 2 * math.pi / paso
         c, s_ = math.cos(math.radians(angulo)), math.sin(math.radians(angulo))
