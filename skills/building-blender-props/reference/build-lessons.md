@@ -35,6 +35,21 @@ with "→ verifying".
 - **A data sheet's W × D × H does not say which axis is which.** Cine camera:
   216 × 152 × 76 with no axes; the tall body was an assumption, declared.
 
+- **When two parts must fit, write the fit as the independent check.** A blade
+  did not enter its own sheath (1,236 crossing faces, up to 0.99 mm) with every
+  geometry gate green: the spine and ricasso carry full thickness to their
+  edge and sat under the ramp of the moulded front. Copy the part into its
+  seated pose, run `pairwise_intersections` and `surface_distance`, delete the
+  copy. Four passes to zero.
+- **A prop that lies flat is posed, not placed.** Rotate about the short axis
+  by bisection until the lowest point on each side of a cut touches the floor
+  together, store the matrix on disk, and place the low poly with the stored
+  matrix instead of posing it again.
+- **A flat-lying prop needs its own light gain.** The rig is tuned for
+  standing props; faces looking at the ceiling got 2.2x and brown leather
+  rendered salmon. `estudio.GANANCIA = 0.9` before every render, sheet and
+  fidelity measurement of that prop.
+
 ## Solids
 
 - **Round in the plane the viewer sees.** `caja_blanda` rounds the four edges
@@ -154,6 +169,22 @@ with "→ verifying".
   genuinely handed keep their own UVs (drone: two propellers per rotation
   sense, built mirrored).
 
+- **Low-poly rows go on the creases of the form** — a bevel line, the foot and
+  crown of a ramp, the edge of a pocket — with the same guide curves the high
+  poly uses. Rows spread evenly or by cosine put a chord across every crease.
+- **Three ways a loft ships faces over 100:1** (knife and sheath, all caught by
+  the geometry gate): cosine-spaced rows with many rows (first step 0.0024 mm
+  beside 0.25 mm stations: 1,144 faces); a diagonal end cut read as a wedge of
+  ever shorter sections (3,797 faces — shear the section coordinate so the cut
+  is one whole section); and the leftover step `np.arange` leaves before the
+  end coordinate (0.002 mm, 3568:1 — use `linspace` with a computed count).
+- **A blade edge of zero thickness welds its two faces in patches** near the
+  tip (195 open edges). Keep a few microns.
+- **A pointed tip of a row-based surface**: bands squeezed towards the point
+  leave a 232-vertex cap inside 0.06 mm (1741:1), and merging it to a point
+  gives 236:1 fans. Blend the rows to an even spread as the section height
+  drops, and let the thickness fall with the height.
+
 ## UV
 
 - **One object per texture set until unwrapped; `juntar()` after.** Lantern:
@@ -177,6 +208,12 @@ with "→ verifying".
 - **Density above twice the floor means the set is too big.** Clamp meter at
   13.9 px/mm against a floor of 5: a 2048² set would do. Declared, not changed.
 
+- **A seam that does not close its island** leaves both sides a fraction of a
+  texel apart and overlapping: two faces, 0.0002 UV, 3 cells at 2048 and none
+  at 1024 (so it looked like packing margin, and a wider margin did not fix
+  it). List the faces first; then weld UVs of the same vertex closer than
+  0.0008.
+
 ## Bake
 
 - **Joined-copy bake is the default** (`unir=True`). Reload the module to be
@@ -197,6 +234,15 @@ with "→ verifying".
 - **Over the threshold: report where, do not move it.** 5 of 16 props shipped
   above 2/255 (2.14, 2.64, 2.66, 2.80, 5.61), each with its smooth-area figure
   (0.72–0.93, and 2.50 on the finned engine) and the cause. → verifying.
+
+- **Fidelity under 2/255 with black tears in the map.** A sheath front baked
+  at 1.88/255 (pass) with black blotches along its stitch line: the low
+  poly's chords cut across a moulded ramp (3.4 mm rise in 3.6 mm) and sat
+  further from the high poly than the bake extrusion. Rows placed on the foot
+  and the crown of the ramp: 1.44/255, no tears. Found by rendering the baked
+  low poly close up; no gate measures it yet.
+- **A boolean resets `material_index`.** Faces painted before cutting an
+  eyelet came back all 0. Paint after the last cut.
 
 ## Stills and sheets
 

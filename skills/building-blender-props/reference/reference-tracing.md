@@ -150,3 +150,31 @@ Both from a pump-action shotgun, the second prop traced this way.
 - Write `Specs.md`, with the tolerance of that third dimension, **before**
   building. On the shotgun it was written after, so the 4 % could be reported
   but not called a pass or a fail.
+
+## 7. A silhouette mask lies on both sides
+
+From a combat knife photographed on a white table, one soft shadow on one
+side of each object.
+
+- **The shadow gets in.** Warm and dark (grey 48-130, saturation 40-70), the
+  same values as the highlights on the blade's bevel: no threshold separates
+  them. The blade measured 34.5 mm wide with it. Separate by SIDE: on the
+  shadow side keep only the strict mask (true black, or saturated leather); on
+  the clean side keep the loose one, which there ends on the white background.
+- **The highlight stays out.** A sharpened bevel seen edge-on is a bright line
+  (grey 106-164 against a background of 204+). The loose mask dropped it: the
+  blade read 29.6 mm wide, and the tip, lost entirely, made the overall length
+  9 px short (5.139 instead of 5.169 px/mm). Extend the clean side while the
+  pixel is not background, capped at ~1.4 mm; read a lost tip by hand on an
+  enlarged crop and store it in pixels next to the script.
+- **How it was caught**: the published blade width (30.2 mm) had been kept out
+  of the scale on purpose. With the shadow it read +14 %, without it -2 %,
+  with the bevel +0.3 %. A dimension used to fix the scale could not have said
+  any of this.
+- **Do not build on the raw outline.** Per-millimetre samples of a mask carry
+  +-0.3 mm of noise and the first clay render showed a wavy spine. Fit a line
+  where the part is straight and pass a spline through a dozen node medians
+  elsewhere.
+- Constants read by eye off a grid are tied to that grid's scale. When the
+  scale is corrected later, convert them (`K = old_px_mm / new_px_mm`) instead
+  of re-reading: a rivet at 316 mm moved 2 mm.

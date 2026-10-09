@@ -265,6 +265,16 @@ Three iterations lost to attacking the symptom. Locate it numerically first.
 
 Things that survive good technical judgement:
 
+- **`bake_fidelity` under its threshold does not mean the map has no holes.**
+  A leather sheath baked at 1.88/255 with black tears along a seam, where the
+  low poly's chords crossed a steep moulded ramp. A few hundred black pixels
+  barely move a mean over the frame. Render the baked low poly close up
+  before the stills; the tears were gone at 1.44 after moving rows onto the
+  ramp.
+- **A silhouette taken from a photo is not the object's outline.** Shadows
+  get in and highlights stay out: one knife blade read 34.5, then 29.6, then
+  30.4 mm wide against 30.2 published. Keep one published dimension OUT of
+  the scale so it can catch this.
 - **`hide_viewport` at layer-collection level** makes bakes fail with "No valid
   selected objects", even though the objects look visible.
 - The bake target object **must** be render-enabled. To stop it occluding
