@@ -61,6 +61,15 @@ pdf_a_referencia            system Python + PyMuPDF, not Blender
 
 `verifications` is `skills/verifying-blender-props/verifications.py`.
 
+## Substance 3D Painter
+
+`substance.py` runs inside Blender (high-poly FBX, material-class map, object-space
+fields). `sp_mascaras.py` (needs OpenCV), `sp_receta.py` and `sp.py` run in the
+system Python; `sp.py` talks to Painter through the sp-mcp server and expects
+that repo beside this one or in `SP_MCP_REPO`, and the props folder in
+`SP_PROPS_ROOT` / `BLENDER_PROPS_ROOT`. How to use them:
+blender-props:texturing-props-in-substance-painter.
+
 ## What the toolkit assumes about the scene
 
 `prop.crear` copies a studio template (`<root>/_Estudio_Base.blend`, or the path

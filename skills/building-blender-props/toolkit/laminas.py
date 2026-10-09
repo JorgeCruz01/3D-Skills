@@ -115,14 +115,17 @@ def wireframe(objetos, camara, salida, res=(2560, 2560), samples=64, grosor=0.00
 
 
 def par_split(objetos_lp, camara, carpeta, res=(3840, 2160), samples=160, grosor=0.0005,
-              solo_alambre=(), tambien=(), ocultar_en_render=()):
+              solo_alambre=(), tambien=(), ocultar_en_render=(), render_lp=False):
     """Renderiza las DOS pasadas del split con la misma camara, sin tocarla entre
     una y otra, y las compone. Es la unica forma de garantizar la misma
     perspectiva: el primer split del casco se compuso con dos camaras, una con
     shift_x = -0.07 heredado y otra sin el, y las mitades no casaban.
 
     Devuelve `misma_camara`: la posicion, rotacion, focal y shift de la camara
-    leidos antes de la primera pasada y despues de la segunda deben ser iguales."""
+    leidos antes de la primera pasada y despues de la segunda deben ser iguales.
+
+    `render_lp=True`: la mitad renderizada es la low poly con sus texturas (flujo de
+    Substance Painter); quien llama deja oculto el high poly."""
     sc = bpy.context.scene
     cam = bpy.data.objects[camara]
     firma = (tuple(cam.matrix_world.translation), tuple(cam.matrix_world.to_euler()), cam.data.lens,
@@ -135,7 +138,7 @@ def par_split(objetos_lp, camara, carpeta, res=(3840, 2160), samples=160, grosor
         sc.camera = cam
         sc.render.resolution_x, sc.render.resolution_y = res
         sc.cycles.samples = samples
-        for n in set(objetos_lp) | set(ocultar_en_render):
+        for n in (set() if render_lp else set(objetos_lp)) | set(ocultar_en_render):
             bpy.data.objects[n].hide_render = True
         sc.render.filepath = r_render
         bpy.ops.render.render(write_still=True)
@@ -197,6 +200,71 @@ def hoja_uv(objetos, salida, res=2048, fondo=(0.06, 0.07, 0.09), linea=(0.85, 0.
         px[:, [0, -1], :3] = 0.35
         hojas.append(px)
     return _escribir(np.concatenate(hojas, 1), salida)
+
+
+def hoja_uv_sets(objetos, salida, res=2048, fondo=(0.06, 0.07, 0.09), linea=(0.85, 0.9, 1.0), rejilla=1024):
+    """Como `hoja_uv`, pero una celda por SET (material), no por objeto: cada set tiene su propio 0-1 y dibujar dos en
+    el mismo cuadro los hace parecer solapados. Devuelve, por set, caras, fraccion de celdas con dos o mas caras
+    (solape real dentro del set) y caras fuera de 0-1."""
+    sets, orden = {}, []
+    for n in objetos:
+        ob = bpy.data.objects[n]
+        bm = bmesh.new()
+        bm.from_mesh(ob.data)
+        uv = bm.loops.layers.uv.active
+        for f in bm.faces:
+            sl = ob.material_slots[f.material_index] if ob.material_slots else None
+            k = sl.material.name if sl and sl.material else "(sin material)"
+            if k not in sets:
+                sets[k] = []
+                orden.append(k)
+            sets[k].append([(l[uv].uv.x, l[uv].uv.y) for l in f.loops])
+        bm.free()
+    hojas, info = [], {}
+    for k in orden:
+        px = np.empty((res, res, 4), dtype=np.float32)
+        px[..., :3] = fondo
+        px[..., 3] = 1
+        segs = set()
+        cuenta = np.zeros((rejilla, rejilla), dtype=np.uint16)
+        fuera = 0
+        for ls in sets[k]:
+            if any(not (-1e-4 <= c <= 1 + 1e-4) for p in ls for c in p):
+                fuera += 1
+            for i in range(len(ls)):
+                a, b = ls[i], ls[(i + 1) % len(ls)]
+                q = (round(a[0], 5), round(a[1], 5), round(b[0], 5), round(b[1], 5))
+                segs.add(q if q[:2] <= q[2:] else q[2:] + q[:2])
+            cara = np.zeros((rejilla, rejilla), dtype=bool)
+            for i in range(1, len(ls) - 1):
+                tri = np.array([ls[0], ls[i], ls[i + 1]]) * rejilla
+                x0, x1 = max(int(np.floor(tri[:, 0].min())), 0), min(int(np.ceil(tri[:, 0].max())) + 1, rejilla)
+                y0, y1 = max(int(np.floor(tri[:, 1].min())), 0), min(int(np.ceil(tri[:, 1].max())) + 1, rejilla)
+                if x1 <= x0 or y1 <= y0:
+                    continue
+                xs, ys = np.meshgrid(np.arange(x0, x1) + .5, np.arange(y0, y1) + .5)
+                a, b, c = tri
+                d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
+                if abs(d) < 1e-12:
+                    continue
+                w0 = ((b[1] - c[1]) * (xs - c[0]) + (c[0] - b[0]) * (ys - c[1])) / d
+                w1 = ((c[1] - a[1]) * (xs - c[0]) + (a[0] - c[0]) * (ys - c[1])) / d
+                cara[y0:y1, x0:x1] |= (w0 > 1e-6) & (w1 > 1e-6) & ((1 - w0 - w1) > 1e-6)
+            cuenta += cara
+        for ax, ay, bx, by in segs:
+            m = int(max(abs(bx - ax), abs(by - ay)) * res) + 2
+            t = np.linspace(0, 1, m)
+            x = np.clip(((ax + (bx - ax) * t) * (res - 1)).astype(int), 0, res - 1)
+            y = np.clip(((ay + (by - ay) * t) * (res - 1)).astype(int), 0, res - 1)
+            px[y, x, :3] = linea
+        px[[0, -1], :, :3] = 0.35
+        px[:, [0, -1], :3] = 0.35
+        hojas.append(px)
+        usado = int((cuenta >= 1).sum())
+        info[k] = {"caras": len(sets[k]), "ocupacion": round(usado / rejilla ** 2, 4),
+                   "solape": round(int((cuenta >= 2).sum()) / max(usado, 1), 5), "fuera": fuera}
+    _escribir(np.concatenate(hojas, 1), salida)
+    return {"ruta": salida, "sets": info}
 
 
 def tira_mapas(rutas, salida, lado=1024):

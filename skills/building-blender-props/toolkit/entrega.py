@@ -46,13 +46,16 @@ def exportar_y_verificar(nombre, objetos_lp, materiales):
     return {"export": ex, "tris": tris, "dims_mm": dims, "ida_y_vuelta": rt}
 
 
-def still(nombre, fichero, direccion, res=(3840, 2160), samples=160, margen=0.02, ocultar=(), relleno=None):
+def still(nombre, fichero, direccion, res=(3840, 2160), samples=160, margen=0.02, ocultar=(), relleno=None, lp=False):
     """Un still del HIGH POLY desde `direccion` (objeto -> camara). `relleno` =
     (posicion, potencia_W, tamano_m) anade una luz de area temporal mirando al
-    centro del prop, para tomas donde las luces del rig no llegan."""
+    centro del prop, para tomas donde las luces del rig no llegan.
+    `lp=True` renderiza la LOW POLY con sus texturas: es lo que toca cuando las
+    texturas se hicieron en Substance Painter, porque el high poly ya no lleva
+    el material que se entrega."""
     R = prop.rutas(nombre)
     sc = bpy.context.scene
-    _ver(hp=True, lp=False, extra_ocultos=ocultar)
+    _ver(hp=not lp, lp=lp, extra_ocultos=ocultar)
     estudio.guardar_base()
     estudio.escalar_luces(HP)
     cam = bpy.data.objects["CAM_Beauty"]
@@ -119,8 +122,9 @@ def arcilla(nombre, direccion, fichero="05_arcilla_ao.png", gris=0.62, alcance=0
         bpy.data.materials.remove(m)
 
 
-def laminas_tecnicas(nombre, objetos_lp, mapas, solo_alambre=(), tambien=(), grosor=0.0005):
-    """Split con una sola camara, wireframe, hoja UV y tira de mapas."""
+def laminas_tecnicas(nombre, objetos_lp, mapas, solo_alambre=(), tambien=(), grosor=0.0005, lp=False):
+    """Split con una sola camara, wireframe, hoja UV y tira de mapas. `lp=True`: la mitad
+    renderizada del split es la low poly texturizada (texturas de Substance Painter)."""
     R = prop.rutas(nombre)
     estudio.guardar_base()
     estudio.escalar_luces(HP)
@@ -129,11 +133,11 @@ def laminas_tecnicas(nombre, objetos_lp, mapas, solo_alambre=(), tambien=(), gro
     cam.data.lens = bpy.data.objects["CAM_Beauty"].data.lens
     cam.data.shift_x = cam.data.shift_y = 0.0
     estudio.encuadrar("CAM_Topo", HP, 0.03, (3840, 2160))
-    _ver(hp=True, lp=False)
+    _ver(hp=not lp, lp=lp)
     sp = laminas.par_split(objetos_lp, "CAM_Topo", R["renders_topologia"], res=(3840, 2160), samples=160,
-                           grosor=grosor, solo_alambre=solo_alambre, tambien=tambien)
+                           grosor=grosor, solo_alambre=solo_alambre, tambien=tambien, render_lp=lp)
     _ver(hp=True, lp=False)
-    uvh = laminas.hoja_uv(objetos_lp, os.path.join(R["texturas"], "uv.png"), res=2048)
+    uvh = laminas.hoja_uv_sets(objetos_lp, os.path.join(R["texturas"], "uv.png"), res=2048)["ruta"]   # una celda por set
     tira = laminas.tira_mapas(mapas, os.path.join(R["texturas"], "maps.png"), lado=1024)
     return {"split": sp, "uv": uvh, "maps": tira}
 

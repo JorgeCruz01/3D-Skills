@@ -65,6 +65,14 @@ purpose, and low poly and UV for a mesh with no hard edges. Measured on one
 prop, a 29-litre backpack; it says what it has not been tried on. The code is
 `toolkit/tela.py` in the skill above.
 
+**`texturing-props-in-substance-painter`** — final textures in Adobe Substance 3D
+Painter, driven from a terminal through the sp-mcp server. Blender bakes what
+Painter cannot get from a one-object low poly (material classes from the high
+poly, object-space scratch and lamination fields, halos); the look is one
+Python recipe per prop, applied in a single undo step, so the Painter project
+is disposable and never enters git. Includes the traps found on the first
+prop and how its first pass was taken past the procedural look.
+
 The skills split the work: the two `building` skills say what to make and
 which function to call, `verifying` says whether it passed.
 

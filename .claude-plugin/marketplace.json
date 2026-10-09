@@ -17,7 +17,8 @@
       "skills": [
         "./skills/verifying-blender-props",
         "./skills/building-blender-props",
-        "./skills/building-blender-soft-goods"
+        "./skills/building-blender-soft-goods",
+        "./skills/texturing-props-in-substance-painter"
       ]
     }
   ]

@@ -102,14 +102,14 @@ def hornear_y_exportar(nombre, lp_nombre, solidos_hp, sets, hero, extrusion, vis
     return res
 
 
-def cerrar(nombre, lp_nombre, sets, hero, esperados, grosor=0.0008):
+def cerrar(nombre, lp_nombre, sets, hero, esperados, grosor=0.0008, lp=False):
     """Laminas tecnicas con la camara del hero, paquete de portafolio y cierre."""
     T = prop.rutas(nombre)["texturas"]
     previo = estudio.DIRECCIONES["CAM_Topo"]
     estudio.DIRECCIONES["CAM_Topo"] = tuple(hero)
     try:
         l = entrega.laminas_tecnicas(nombre, [lp_nombre], [os.path.join(T, "TX_%s_%s.png" % (st, m)) for st in sets
-                                                           for m in ("BaseColor", "Normal", "ORM")], grosor=grosor)
+                                                           for m in ("BaseColor", "Normal", "ORM")], grosor=grosor, lp=lp)
     finally:
         estudio.DIRECCIONES["CAM_Topo"] = previo
     p = entrega.paquete_portafolio(nombre)

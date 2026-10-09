@@ -416,3 +416,4 @@ Two texture sets: keep one object per set until both are unwrapped, then a
 | `reference/mcp-session-limits.md` | before a bake, a render batch, or switching `.blend` |
 | `reference/build-lessons.md` | a phase gate fails, or before writing the builder of a prop larger or more repetitive than the last |
 | blender-props:building-blender-soft-goods | any part of the prop is fabric, webbing, leather or padding |
+| blender-props:texturing-props-in-substance-painter | final textures: after the low poly is unwrapped (phase 8), instead of phase 9's material bake; also to retexture a delivered prop |

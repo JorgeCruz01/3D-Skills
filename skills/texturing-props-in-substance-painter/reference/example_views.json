@@ -1,0 +1,8 @@
+[
+ {"nombre": "conjunto", "hoja": ["three_quarter", "top"]},
+ {"nombre": "funda_punta", "yaw": 25, "pitch": -55, "target": [0.07, 0.01, -0.046], "distance": 0.2},
+ {"nombre": "funda_colgador", "yaw": -15, "pitch": -60, "target": [-0.10, 0.012, -0.05], "distance": 0.2},
+ {"nombre": "hoja", "yaw": 20, "pitch": -50, "target": [0.06, 0.012, 0.044], "distance": 0.2},
+ {"nombre": "recazo", "yaw": 10, "pitch": -60, "target": [-0.005, 0.012, 0.044], "distance": 0.1},
+ {"nombre": "puno", "yaw": -20, "pitch": -45, "target": [-0.08, 0.014, 0.044], "distance": 0.16}
+]
