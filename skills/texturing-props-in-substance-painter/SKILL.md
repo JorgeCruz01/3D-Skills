@@ -20,7 +20,7 @@ disposable.
 
 Measured on the first prop (a combat knife with a leather sheath, 5,648
 triangles, one 4096² set): project + bake from a 787k-face high poly 11 s;
-applying 124 layer operations 2.3 s; export 11 s; one look iteration, including
+applying 118 layer operations 2.3 s; export 11 s; one look iteration, including
 a 1080p Cycles check in Blender, under two minutes. About ten applications of
 the script took it from a flat first pass to the delivered maps. It is one prop: where a number
 appears below, it is that prop's.
@@ -62,6 +62,7 @@ Phases 1–8 of building-blender-props are unchanged. Then:
 | 8 | Export and install | `python sp.py exportar <Prop> <Set>` | `TX_<Set>_{BaseColor,Normal,ORM}.png` in `Texturas/` |
 | 9 | Judge under the studio light | Blender: reload images, `entrega.still(..., res=(1920,1080), samples=96, lp=True)` | compare with the reference, then loop to 7 |
 | 10 | Deliverables | `entrega.still(..., lp=True)` ×4, `entrega.exportar_y_verificar`, `tanda.cerrar(..., lp=True)` | stills, GLB (it embeds the maps), split with the textured low poly |
+| 10b | Masters for the portfolio session | `entrega.maestros_1610(NOMBRE, hero, "render"\|"vistas"\|"split", lp=True)` | 3200×2000 PNGs in `Renders/Portafolio_16x10/` + a `manifest.json` with hashes, cameras and measured figures |
 | 11 | After the user approves | delete `<Prop>.spp`, `Texturas/Bakes/SP_export/`, `_sp_mcp/`, `<Prop>_HP.fbx` | only the exported maps, the masks and the script stay |
 
 Steps 2–3 leave nothing in the scene and do not save the `.blend`.
@@ -108,7 +109,7 @@ def construir():
     return r
 ```
 
-Full example: `reference/example_recipe_knife.py` (124 operations).
+Full example: `reference/example_recipe_knife.py` (118 operations).
 
 - Layers stack in call order, later on top. A group's mask clips its children.
 - **Under-layer first**: bare metal at the bottom, the coating in a group whose
@@ -133,6 +134,7 @@ Full example: `reference/example_recipe_knife.py` (124 operations).
 | No ORM in the Blender preset | it exports roughness and metallic separately | Take ORM and base colour from *Unreal Engine (Packed)*; `sp.py exportar` does both and renames |
 | Masks changed after the project was created | importing again under the same name was not tested | Recreate the project (`sp.py proyecto`): 20 s, and the script rebuilds the layers |
 | Bake params rejected | names differ from the UI | common: `MaxHeight`, `MaxDepth` (relative to the scene diagonal: 0.007 of 0.36 m = 2.5 mm), `SubSampling`. An unknown key returns the valid list |
+| 4K Cycles stills crawl after texturing (two stills not written after four minutes; they had taken 40–70 s each) | Painter keeps the 4096² project in video memory: 11.7 of 12.3 GB used with both open | `python sp.py llamar sp_project_close` before the final renders (freed 2.7 GB); the project is already saved by `exportar` |
 | `AO` 0 on a few percent of the map | faces pressed against another part (sheath layers) | Expected; check they are hidden faces before changing anything |
 
 ## Getting past "procedural"
@@ -172,6 +174,36 @@ metallic non-binary under ~5 % is the edge-wear transition and is fine.
 - README: say the textures were authored in Substance 3D Painter, list the
   mask set, and keep `texturizar_sp.py` in the prop folder. `asset.json`
   `software` gains `"Substance 3D Painter"`.
+
+## The recipe survives a new mesh
+
+The low poly of the knife was rebuilt after the look was approved (5,648 →
+11,624 triangles, new UVs). Nothing in `texturizar_sp.py` changed: re-run steps
+1–5 and 7–8 and the same look lands on the new layout, because every mask is
+re-baked from the high poly and every noise is triplanar or object-space.
+That is the test of a recipe: **nothing in it may depend on where an island
+sits.**
+
+## UVs worth texturing
+
+The automatic unwrap (seams at 50° plus a safety net that keeps cutting
+self-overlapping islands) gave the knife 128 islands at 61.6 % coverage. Seams
+written per piece type gave 93 islands at 75.0 %, with zero overlap. Three rules, all in that prop's `construir_lp.py`
+(copy in `reference/example_uv_seams_knife.py`):
+
+| Rule | Why | Measured |
+|---|---|---|
+| **Seams by what the piece is**, not by angle. Carry a face attribute with the piece index through the join. Slab: broad faces vs rim. Tube: around each cap and one line along the underside. Folded band: broad faces vs edges, and where the band turns over | an angle threshold cuts a moulded ramp off its panel and leaves a pommel in one piece | 128 → 65 islands before the safety net, 7 overlapping faces left |
+| **No strip longer than ~130 mm.** Cut rim and edge strips at intervals along the piece | the longest island sets the scale of the whole atlas: one 420 mm edge strip of the sheath back was holding everything else at 61 % | 57.4 → 74.0 % coverage (hidden islands already reduced) |
+| **Hidden islands at 0.55 scale**, then repack. Hidden = over 70 % of the island's area casts a ray along its normal into the same mesh within 9 mm | faces pressed against another part, or looking into a cavity, do not need the density of the hero faces | 18 of 93 islands, 273 of 1,090 cm². Alone it LOWERED coverage (61.0 → 57.4 %): the packer could not grow past the long strip. It pays only after rule 2 |
+
+Pick the tube's lengthwise seam as the vertex column *nearest* to straight
+down, not the one at exactly 0°: on a 40-sided pommel no column sat at 0°, the
+skin got no seam and unwrapped as a figure eight.
+
+`uv_density` deviation no longer reads as a defect once hidden islands are
+scaled on purpose: report the density of the visible islands and say which
+ones were reduced.
 
 ## Retexturing a delivered prop
 

@@ -142,6 +142,54 @@ def laminas_tecnicas(nombre, objetos_lp, mapas, solo_alambre=(), tambien=(), gro
     return {"split": sp, "uv": uvh, "maps": tira}
 
 
+RES_1610 = (3200, 2000)
+
+
+def maestros_1610(nombre, hero, parte, lp=False, grosor=0.0005, vistas=(), objetos_lp=None):
+    """PNG maestros 3200x2000 para la sesion del portafolio, en `Renders/Portafolio_16x10/` (ESTANDAR_LAMINAS.md).
+    Se rueda por partes para no pasar del tiempo de una llamada:
+      parte "render" -> render.png y clay.png          parte "split" -> split.png y wireframe.png
+      parte "vistas" -> view-N.png, con `vistas` = [(N, direccion, margen)]
+    `lp=True`: render, split y vistas son de la low poly texturizada; la arcilla es siempre del high poly."""
+    R = prop.rutas(nombre)
+    dst = os.path.join(os.path.dirname(R["renders_portafolio"]), "Portafolio_16x10")
+    os.makedirs(dst, exist_ok=True)
+    rel = lambda f: os.path.join("..", "Portafolio_16x10", f)
+    out = {}
+    if parte == "render":
+        s = still(nombre, rel("render.png"), hero, res=RES_1610, lp=lp)
+        out["render"] = (s["ok"], s["encuadre"], s["t"])
+        s = arcilla(nombre, hero, fichero=rel("clay.png"), res=RES_1610)
+        out["clay"] = (s["ok"], s["encuadre"], s["t"])
+    elif parte == "vistas":
+        for n, d, m in vistas:
+            s = still(nombre, rel("view-%d.png" % n), d, res=RES_1610, margen=m, lp=lp)
+            out["view-%d" % n] = (s["ok"], s["encuadre"], s["t"])
+    elif parte == "split":
+        objetos_lp = objetos_lp or [o.name for o in bpy.data.collections[LP].all_objects if o.type == "MESH"]
+        previo = estudio.DIRECCIONES["CAM_Topo"]
+        estudio.DIRECCIONES["CAM_Topo"] = tuple(hero)
+        try:
+            estudio.guardar_base()
+            estudio.escalar_luces(HP)
+            cam = bpy.data.objects["CAM_Topo"]
+            cam["base_dir"] = list(Vector(hero).normalized())
+            cam.data.lens = bpy.data.objects["CAM_Beauty"].data.lens
+            cam.data.shift_x = cam.data.shift_y = 0.0
+            estudio.encuadrar("CAM_Topo", HP, 0.03, RES_1610)
+            _ver(hp=not lp, lp=lp)
+            sp = laminas.par_split(objetos_lp, "CAM_Topo", dst, res=RES_1610, samples=160, grosor=grosor, render_lp=lp)
+            _ver(hp=True, lp=False)
+        finally:
+            estudio.DIRECCIONES["CAM_Topo"] = previo
+        sr = os.path.join(dst, "split_render.png")
+        if os.path.exists(sr):
+            os.remove(sr)
+        out["split"] = sp.get("misma_camara")
+    out["ficheros"] = {f: os.path.getsize(os.path.join(dst, f)) for f in sorted(os.listdir(dst))}
+    return out
+
+
 def paquete_portafolio(nombre, hero="01_hero.png"):
     R = prop.rutas(nombre)
     src = {"render": os.path.join(R["renders_stills"], hero),
