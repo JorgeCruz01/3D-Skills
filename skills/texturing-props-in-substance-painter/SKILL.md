@@ -150,6 +150,7 @@ Full example: `reference/example_recipe_knife.py` (118 operations).
 | Lines look diagonal in a 3/4 orthographic preview | they were not: a pure side view showed them along the axis | check direction claims in an axis-aligned view before hunting a cause |
 | A straight-edged pale band across a stock | `Grunge Wipe Dusty` has straight wipe borders | localise finish changes with `CP_Manchas`, not wipe grunges |
 | `sp.py exportar` → `Errno 22` copying the normal | Blender had the 16-bit map open while rendering | `exportar` retries for 24 s |
+| A black wedge at the heel of a stock; pointed mitres at the forend tip | the low poly had 5–6 sections across an end where the high poly rolls over (`Q.desvio` max 3.4 mm, above the bake extrusion — reported and shipped anyway), and the slab's edge rounding follows distance-to-outline, which mitres at every sharp corner | round the OUTLINE first (morphological opening), give the low poly ~14 sections per rolled end, and treat any `desvio` max above the extrusion as a defect to look at, not a figure to note |
 | `AO` 0 on a few percent of the map | faces pressed against another part (sheath layers) | Expected; check they are hidden faces before changing anything |
 
 ## Getting past "procedural"
