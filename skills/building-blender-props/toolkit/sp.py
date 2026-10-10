@@ -2,6 +2,7 @@
 
     python sp.py estado
     python sp.py proyecto <Prop> <Set> [--extrusion 0.007]   crea el .spp, hornea desde el HP e importa las mascaras
+    python sp.py normal   <Prop> <Set>                       usa la normal horneada en Blender (relieve de material) como mesh map
     python sp.py rehacer  <Prop> [vistas.json]               borra la pila, aplica <Prop>/texturizar_sp.py y captura
     python sp.py ver      <Prop> <vistas.json>               solo capturas
     python sp.py exportar <Prop> <Set>                       exporta e instala TX_<Set>_{BaseColor,Normal,ORM}.png
@@ -108,6 +109,34 @@ def proyecto(prop, ts, extrusion=0.007):
             print("AVISO: el texture set se llama", t["name"], "y no", ts)
 
 
+def normal(prop, ts):
+    """Pone la normal horneada en Blender (`substance.normal_hp`, Texturas/Bakes/NORMAL_blender.png) como mesh map
+    `Normal` del set. Es el camino cuando el relieve del high poly esta en sus materiales y no en su geometria:
+    Painter lo habria perdido. Importa tambien CP_Relieve_* si `sp_mascaras.py` ya las genero."""
+    R = rutas(prop)
+    src = os.path.join(R["tex"], "Bakes", "NORMAL_blender.png")
+    if not os.path.exists(src):
+        sys.exit("falta " + src)
+    pasos = [{"tool": "sp_import_resource", "args": {"path": u(src), "usage": "texture"}}]
+    for f in ("CP_Relieve_Canto.png", "CP_Relieve_Hueco.png"):
+        if os.path.exists(os.path.join(R["mascaras"], f)):
+            pasos.append({"tool": "sp_import_resource", "args": {"path": u(os.path.join(R["mascaras"], f)), "usage": "texture"}})
+    res = llamar(pasos, eco=False)
+    url = (res[0][0] or {}).get("url")
+    if not url:
+        sys.exit("no se pudo importar la normal: %s" % (res[0][0],))
+    codigo = chr(10).join([
+        "import substance_painter.textureset as ts, substance_painter.resource as rs",
+        "t = ts.TextureSet.from_name(%r)" % ts,
+        "t.set_mesh_map_resource(ts.MeshMapUsage.Normal, rs.ResourceID.from_url(%r))" % url,
+        "r = t.get_mesh_map_resource(ts.MeshMapUsage.Normal)",
+        "__result__ = {'normal': r.name if r else None}"])
+    out = llamar([{"tool": "sp_exec_python", "args": {"code": codigo, "undo_group": False}},
+                  {"tool": "sp_wait_idle", "args": {"timeout_s": 120, "quiet_ms": 3000}},
+                  {"tool": "sp_project_save", "args": {"mode": "save"}}])
+    return out
+
+
 def _receta(prop):
     spec = importlib.util.spec_from_file_location("texturizar_sp", os.path.join(RAIZ, prop, "texturizar_sp.py"))
     m = importlib.util.module_from_spec(spec)
@@ -200,6 +229,8 @@ if __name__ == "__main__":
         llamar([{"tool": "sp_status", "args": {}}])
     elif cmd == "proyecto":
         proyecto(a[1], a[2], float(a[a.index("--extrusion") + 1]) if "--extrusion" in a else 0.007)
+    elif cmd == "normal":
+        normal(a[1], a[2])
     elif cmd == "rehacer":
         rehacer(a[1], json.load(open(a[2], encoding="utf8")) if len(a) > 2 else ())
     elif cmd == "ver":

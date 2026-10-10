@@ -8,6 +8,7 @@ Escribe Texturas/Bakes/Mascaras/
     HL_<Clase>.png        halo alrededor de la clase (cerco de verdin de un remache, cuero
                           oscurecido junto a la costura), sin la propia clase
     CP_Rayado_Largo.png, CP_Rayado_Ancho.png, CP_Manchas.png, CP_Junta.png, CP_Lamina.png
+    CP_Relieve_Canto.png, CP_Relieve_Hueco.png   si existe NORMAL_blender.png: cantos y huecos del relieve de material
     _ID_previa.png        para mirar
 
 Va fuera de Blender porque usa OpenCV. Imprime el porcentaje del mapa de cada clase: una clase
@@ -57,15 +58,30 @@ def main(carpeta, halos):
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radio + 1, 2 * radio + 1))
         h = cv2.GaussianBlur(cv2.dilate(mk[n], k), (0, 0), radio * 0.6)
         escribir(os.path.join(D, "HL_%s.png" % n), np.clip(h * 1.6, 0, 1) * (1 - mk[n]))
-    for fich, canales in (("CAMPO_rayado.png", ("CP_Rayado_Largo", "CP_Rayado_Ancho", "CP_Manchas")),
-                          ("CAMPO_laminas.png", ("CP_Junta", "CP_Lamina"))):
-        p = os.path.join(B, fich)
-        if not os.path.exists(p):
+    for fich in sorted(f for f in os.listdir(B) if f.startswith("CAMPO_") and f.endswith(".png")):
+        base, _, suf = fich[6:-4].partition("_")            # CAMPO_rayado_Veta.png -> rayado, _Veta
+        suf = "_" + suf if suf else ""
+        canales = {"rayado": ("CP_Rayado_Largo", "CP_Rayado_Ancho", "CP_Manchas"), "laminas": ("CP_Junta", "CP_Lamina")}.get(base)
+        if not canales:
             continue
-        im = leer(p)[..., 2::-1]
+        im = leer(os.path.join(B, fich))[..., 2::-1]
         for c, n in enumerate(canales):
             g = im[..., c]
-            escribir(os.path.join(D, n + ".png"), g if n == "CP_Junta" else estirar(g, ~vacio))
+            escribir(os.path.join(D, n + suf + ".png"), g if n == "CP_Junta" else estirar(g, ~vacio))
+    pn = os.path.join(B, "NORMAL_blender.png")
+    if os.path.exists(pn):
+        # Curvatura sacada de la normal horneada en Blender: es la unica que ve el relieve de MATERIAL del high poly
+        # (surcos, moleteado). La curvatura de Painter sale de la geometria y ahi esas piezas son lisas.
+        n = leer(pn)[..., 2::-1] * 2 - 1
+        nx, ny = cv2.GaussianBlur(n[..., 0], (0, 0), 1.2), cv2.GaussianBlur(n[..., 1], (0, 0), 1.2)
+        curv = cv2.Sobel(nx, cv2.CV_32F, 1, 0, ksize=3) - cv2.Sobel(ny, cv2.CV_32F, 0, 1, ksize=3)     # v crece hacia arriba
+        dentro = cv2.erode((~vacio).astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
+        frente = n[..., 2] > 0.2                                    # fuera las caras ocultas (normal hacia dentro)
+        curv = np.where(dentro & frente, curv, 0)
+        k = 1.0 / max(float(np.percentile(np.abs(curv[dentro & frente]), 99.5)), 1e-6)
+        escribir(os.path.join(D, "CP_Relieve_Canto.png"), cv2.GaussianBlur(np.clip(curv * k, 0, 1), (0, 0), 1.0))
+        escribir(os.path.join(D, "CP_Relieve_Hueco.png"), cv2.GaussianBlur(np.clip(-curv * k, 0, 1), (0, 0), 1.0))
+        out["_relieve"] = "CP_Relieve_Canto, CP_Relieve_Hueco"
     prev = cv2.resize((rgb[..., ::-1] * 255).astype(np.uint8), (1024, 1024), interpolation=cv2.INTER_AREA)
     cv2.imencode(".png", prev)[1].tofile(os.path.join(D, "_ID_previa.png"))
     print(json.dumps(out, indent=1))

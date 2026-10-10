@@ -85,10 +85,17 @@ class Receta:
                       "usage": "procedural", "projection": {"mode": "Triplanar", "scale": escala},
                       "params": params or {}}, fusion, opac)
 
+    TRIPLANAR = ("Metal Edge Wear", "Dirt")
+
     def gen(self, r, recurso, params=None, fusion=None, opac=None):
-        """Generador que lee los mesh maps (Metal Edge Wear, Dirt, Mask Editor, Curvature...)."""
+        """Generador que lee los mesh maps (Metal Edge Wear, Dirt, Mask Editor, Curvature...).
+        Metal Edge Wear y Dirt van con `Use_Triplanar` salvo que se pida otra cosa: su grunge interno se proyecta por
+        UV y en una isla larga (el canon de una escopeta) deja la misma marca repetida cada pocos centimetros."""
+        params = dict(params or {})
+        if recurso in self.TRIPLANAR:
+            params.setdefault("Use_Triplanar", 1)
         self._efecto({"op": "add_effect", "uid": "$" + r, "kind": "generator", "target": "mask", "resource": recurso,
-                      "params": params or {}}, fusion, opac)
+                      "params": params}, fusion, opac)
 
     def filtro(self, r, recurso, params=None, destino="mask"):
         self.ops.append({"op": "add_effect", "uid": "$" + r, "kind": "filter", "target": destino, "resource": recurso,

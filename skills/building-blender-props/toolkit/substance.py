@@ -5,6 +5,7 @@ objeto y un material:
 
     exportar_hp(nombre)            FBX del high poly con los mismos ejes y escala que el de la low
     clases(nombre, lp, ...)        mapa de clases de material (ID) horneado desde los materiales del HP
+    normal_hp(nombre, lp, ...)     normal con el relieve de MATERIAL del high poly (Painter solo hornea geometria)
     campos(nombre, lp, eje, ...)   mapas en espacio de objeto: laminas, rayado a lo largo y a lo ancho,
                                    manchas grandes. No dependen de las UV: no dejan costura.
     eje_principal(nombres)         direccion larga de unas piezas (para orientar laminas y rayado)
@@ -71,8 +72,8 @@ def eje_principal(nombres):
 class _Horno:
     """Prepara un horneado EMIT a una imagen nueva sobre la low poly y lo deshace todo al salir."""
 
-    def __init__(self, lp, res, propio):
-        self.lp, self.res, self.propio = bpy.data.objects[lp], res, propio
+    def __init__(self, lp, res, propio, flotante=False):
+        self.lp, self.res, self.propio, self.flotante = bpy.data.objects[lp], res, propio, flotante
 
     def __enter__(self):
         sc = bpy.context.scene
@@ -82,7 +83,7 @@ class _Horno:
         self.bk = (bk.use_selected_to_active, bk.cage_extrusion, bk.max_ray_distance, bk.margin, bk.use_clear)
         self.vis = [(o, o.hide_render) for o in sc.objects]
         self.mats = list(self.lp.data.materials)
-        self.img = bpy.data.images.new("_sp_horno", self.res, self.res, alpha=False)
+        self.img = bpy.data.images.new("_sp_horno", self.res, self.res, alpha=False, float_buffer=self.flotante)
         self.img.colorspace_settings.name = "Non-Color"
         self.tmp = bpy.data.materials.new("_sp_destino")
         self.tmp.use_nodes = True
@@ -96,7 +97,7 @@ class _Horno:
         sc.render.engine = "CYCLES"
         return self
 
-    def hornear(self, fuente=None, extrusion=0.002, muestras=1, margen=24):
+    def hornear(self, fuente=None, extrusion=0.002, muestras=1, margen=24, tipo="EMIT"):
         sc, bk = self.sc, self.sc.render.bake
         for o, _ in self.vis:
             o.hide_render = True
@@ -112,10 +113,22 @@ class _Horno:
         sc.cycles.samples = muestras
         bk.use_selected_to_active = fuente is not None
         bk.cage_extrusion, bk.max_ray_distance, bk.margin, bk.use_clear = extrusion, 0.0, margen, True
-        return list(bpy.ops.object.bake(type="EMIT"))
+        if tipo == "NORMAL":
+            bk.normal_space, bk.normal_r, bk.normal_g, bk.normal_b = "TANGENT", "POS_X", "POS_Y", "POS_Z"
+        return list(bpy.ops.object.bake(type=tipo))
 
     def guardar(self, ruta):
         os.makedirs(os.path.dirname(ruta), exist_ok=True)
+        if self.flotante:                       # PNG de 16 bits: save_render respeta la profundidad de la escena
+            s = self.sc.render.image_settings
+            prev = (s.file_format, s.color_mode, s.color_depth, self.sc.view_settings.view_transform)
+            s.file_format, s.color_mode, s.color_depth = "PNG", "RGB", "16"
+            self.sc.view_settings.view_transform = "Raw"
+            try:
+                self.img.save_render(ruta, scene=self.sc)
+            finally:
+                s.file_format, s.color_mode, s.color_depth, self.sc.view_settings.view_transform = prev
+            return ruta
         self.img.filepath_raw, self.img.file_format = ruta, "PNG"
         self.img.save()
         return ruta
@@ -193,6 +206,39 @@ def clases(nombre, lp, extrusion=0.002, res=4096, por_objeto=None):
     return {"bake": r, "ruta": ruta, "clases": nombres}
 
 
+def normal_hp(nombre, lp, extrusion=0.002, res=4096):
+    """Normal tangente (OpenGL, 16 bits) horneada en Blender desde el high poly CON sus materiales, a
+    Texturas/Bakes/NORMAL_blender.png. Hace falta cuando el relieve fino del high poly no es geometria sino
+    relieve de material (`M.relieve`: surcos, moleteado, tejido, dibujo de una cantonera): el horneado de Painter
+    solo ve geometria y lo pierde entero. Se le da despues a Painter como mesh map `Normal` (`sp.py normal`)."""
+    R = prop.rutas(nombre)
+    sc = bpy.context.scene
+    cop = []
+    for o in _hp(con_rotulos=False):
+        c = o.copy()
+        c.data = o.data.copy()
+        sc.collection.objects.link(c)
+        c.hide_viewport = False
+        c.hide_set(False)
+        cop.append(c)
+    bpy.ops.object.select_all(action="DESELECT")
+    for c in cop:
+        c.select_set(True)
+    bpy.context.view_layer.objects.active = cop[0]
+    bpy.ops.object.join()
+    hp = bpy.context.view_layer.objects.active
+    ruta = os.path.join(R["texturas_bakes"], "NORMAL_blender.png")
+    try:
+        with _Horno(lp, res, False, flotante=True) as h:
+            r = h.hornear(hp, extrusion, muestras=8, margen=16, tipo="NORMAL")
+            h.guardar(ruta)
+    finally:
+        me = hp.data
+        bpy.data.objects.remove(hp, do_unlink=True)
+        bpy.data.meshes.remove(me)
+    return {"bake": r, "ruta": ruta, "kb": os.path.getsize(ruta) // 1024}
+
+
 def _nodos_campos(nt, eje, centro, paso, largo, ancho):
     """R = rayado a lo largo del eje, G = rayado a lo ancho, B = manchas grandes; y en una segunda
     salida, laminas: R = linea de junta, G = tono aleatorio por lamina."""
@@ -261,10 +307,12 @@ def _nodos_campos(nt, eje, centro, paso, largo, ancho):
     return rgb.outputs[0], lam.outputs[0]
 
 
-def campos(nombre, lp, eje, centro, paso=0.0016, largo=0.05, ancho=0.0006, res=4096):
+def campos(nombre, lp, eje, centro, paso=0.0016, largo=0.05, ancho=0.0006, res=4096, sufijo=""):
     """Mapas en espacio de objeto, horneados desde la propia low poly (no hacen falta rayos al HP).
     `paso` = grueso de lamina; `largo`/`ancho` = tamano del grano del rayado a lo largo y a traves.
-    Escribe Texturas/Bakes/CAMPO_rayado.png (R largo, G ancho, B manchas) y CAMPO_laminas.png."""
+    Escribe Texturas/Bakes/CAMPO_rayado.png (R largo, G ancho, B manchas) y CAMPO_laminas.png.
+    `sufijo` permite un segundo juego a otra escala (veta ancha de madera ademas del rayado fino):
+    CAMPO_rayado<sufijo>.png, que `sp_mascaras.py` parte como CP_*<sufijo>.png."""
     R = prop.rutas(nombre)
     out = {}
     with _Horno(lp, res, True) as h:
@@ -278,5 +326,5 @@ def campos(nombre, lp, eje, centro, paso=0.0016, largo=0.05, ancho=0.0006, res=4
             nt.links.new(s, em.inputs[0])
             nt.nodes.active = dest
             out[clave] = {"bake": h.hornear(None, muestras=8, margen=24),
-                          "ruta": h.guardar(os.path.join(R["texturas_bakes"], "CAMPO_%s.png" % clave))}
+                          "ruta": h.guardar(os.path.join(R["texturas_bakes"], "CAMPO_%s%s.png" % (clave, sufijo)))}
     return out
