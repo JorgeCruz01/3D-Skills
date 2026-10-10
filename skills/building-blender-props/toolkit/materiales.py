@@ -281,7 +281,8 @@ def asignar(objeto, material, limpiar=True):
     return len(ob.data.materials) - 1
 
 
-def relieve(nombre, tipo, paso, fondo, caja=None, x_min=None, angulo=30.0, tinte=0.0, color_tinte=(0.25, 0.25, 0.25), plano="YZ"):
+def relieve(nombre, tipo, paso, fondo, caja=None, x_min=None, angulo=30.0, tinte=0.0, color_tinte=(0.25, 0.25, 0.25), plano="YZ",
+            elipse=None, hundido=False):
     """Anade a un material ya creado un relieve fino por sombreado (nodo Bump), en
     coordenadas de objeto, para detalle que no merece geometria y que el bake si
     recoge en el mapa de normales.
@@ -292,7 +293,10 @@ def relieve(nombre, tipo, paso, fondo, caja=None, x_min=None, angulo=30.0, tinte
     `color_tinte`, multiplicando). Un tejido solo en el mapa de normales se pierde
     en cuanto la luz es frontal; con el valle tambien en el color se sigue leyendo.
     `paso` y `fondo` en metros. `caja` = ((y0, y1), (z0, z1)) limita la zona en el
-    plano YZ; `x_min` deja el relieve solo donde |x| supera ese valor."""
+    plano YZ; `x_min` deja el relieve solo donde |x| supera ese valor.
+    `elipse` = ((cy, cz), (r_largo, r_corto), grados): la zona es una elipse girada en ese plano (el panel de picado
+    de un pistolete, que va inclinado). `hundido`: fuera de la zona la superficie queda a la altura de las crestas y
+    no a la de los valles: el picado se LABRA en la madera en vez de sobresalir de ella con un escalon en el borde."""
     import math
     m = bpy.data.materials[nombre]
     N, L = m.node_tree.nodes, m.node_tree.links
@@ -365,8 +369,19 @@ def relieve(nombre, tipo, paso, fondo, caja=None, x_min=None, angulo=30.0, tinte
     if x_min is not None:
         t = mat("GREATER_THAN", mat("ABSOLUTE", x), x_min)
         mascara = t if mascara is None else mat("MULTIPLY", mascara, t)
+    if elipse:
+        (cy, cz), (ra, rb), g = elipse
+        c_, s_ = math.cos(math.radians(g)), math.sin(math.radians(g))
+        dy, dz = mat("SUBTRACT", y, cy), mat("SUBTRACT", z, cz)
+        ue = mat("MULTIPLY", mat("ADD", mat("MULTIPLY", dy, c_), mat("MULTIPLY", dz, s_)), 1.0 / ra)
+        ve = mat("MULTIPLY", mat("ADD", mat("MULTIPLY", dy, -s_), mat("MULTIPLY", dz, c_)), 1.0 / rb)
+        t = mat("LESS_THAN", mat("ADD", mat("MULTIPLY", ue, ue), mat("MULTIPLY", ve, ve)), 1.0)
+        mascara = t if mascara is None else mat("MULTIPLY", mascara, t)
     if mascara is not None:
-        alto = mat("MULTIPLY", alto, mascara)
+        if hundido:
+            alto = mat("SUBTRACT", 1.0, mat("MULTIPLY", mat("SUBTRACT", 1.0, alto), mascara))
+        else:
+            alto = mat("MULTIPLY", alto, mascara)
     if tinte > 0 and bsdf.inputs["Base Color"].links:
         base = bsdf.inputs["Base Color"].links[0].from_socket
         mx = N.new("ShaderNodeMix")

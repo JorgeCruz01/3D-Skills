@@ -399,3 +399,72 @@ def _desplegar_una_vez(nombres, margen, metodo):
         bpy.ops.uv.average_islands_scale()
         bpy.ops.uv.pack_islands(rotate=True, margin=margen, shape_method="CONCAVE")
         bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def encoger_ocultas(nombre, factor=0.55, alcance=0.009, fraccion=0.7, margen=0.0022, tambien=None):
+    """Reduce a `factor` las islas que no se ven y vuelve a empaquetar: el atlas que liberan sube la densidad de lo
+    que si se ve. Una isla es oculta si mas de `fraccion` de su area lanza un rayo por su normal que da en la propia
+    malla a menos de `alcance` (caras pegadas a otra pieza), o si `tambien(isla)` lo dice (el anima de un canon).
+    Nacio en el cuchillo (vira e interior de la funda): 61 -> 75 % de ocupacion junto con las tiras de canto."""
+    from mathutils.bvhtree import BVHTree
+    ob = bpy.data.objects[nombre]
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bm.faces.ensure_lookup_table()
+    arbol = BVHTree.FromBMesh(bm)
+    capa = bm.loops.layers.uv.active
+    n, area_oc = 0, 0.0
+    for isla in _islas(bm):
+        tot = oc = 0.0
+        for f in isla:
+            a = f.calc_area()
+            tot += a
+            if arbol.ray_cast(f.calc_center_median() + f.normal * 5e-5, f.normal, alcance)[0] is not None:
+                oc += a
+        if tot and (oc / tot > fraccion or (tambien and tambien(isla))):
+            ls = [l for f in isla for l in f.loops]
+            c = sum((l[capa].uv for l in ls), Vector((0.0, 0.0))) / len(ls)
+            for l in ls:
+                l[capa].uv = c + (l[capa].uv - c) * factor
+            n += 1
+            area_oc += tot
+    bm.to_mesh(ob.data)
+    bm.free()
+    area = next(a for a in bpy.context.window.screen.areas if a.type == "VIEW_3D")
+    region = next(r for r in area.regions if r.type == "WINDOW")
+    bpy.ops.object.select_all(action="DESELECT")
+    ob.select_set(True)
+    bpy.context.view_layer.objects.active = ob
+    with bpy.context.temp_override(area=area, region=region, active_object=ob, object=ob, selected_objects=[ob],
+                                   selected_editable_objects=[ob]):
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.uv.select_all(action="SELECT")
+        bpy.ops.uv.pack_islands(rotate=True, margin=margen, shape_method="CONCAVE")
+        bpy.ops.object.mode_set(mode="OBJECT")
+    return {"islas": n, "area_cm2": round(area_oc * 1e4, 1), "factor": factor}
+
+
+def soldar_uv(nombre, tol=0.0008):
+    """Une las UV de un mismo vertice que quedaron a menos de `tol`: una costura que no llega a cerrar su isla deja
+    los dos lados separados media celda y solapados."""
+    me = bpy.data.objects[nombre].data
+    uvs = me.uv_layers.active.data
+    por_vertice = {}
+    for l in me.loops:
+        por_vertice.setdefault(l.vertex_index, []).append(l.index)
+    n = 0
+    for ls in por_vertice.values():
+        hechos = set()
+        for a in ls:
+            if a in hechos:
+                continue
+            grupo = [b for b in ls if b not in hechos and (uvs[a].uv - uvs[b].uv).length < tol]
+            hechos.update(grupo)
+            if len(grupo) > 1 and any((uvs[a].uv - uvs[b].uv).length > 0 for b in grupo):
+                m = sum((uvs[b].uv for b in grupo), uvs[a].uv * 0.0) / len(grupo)
+                for b in grupo:
+                    uvs[b].uv = m
+                n += 1
+    me.update()
+    return n

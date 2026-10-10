@@ -81,6 +81,8 @@ masks + script rebuild it in under a minute.
 | `CP_Rayado_Largo` / `_Ancho` | anisotropic noise in object space, stretched along / across the long axis | scratches that follow how the object is used; grind lines across a bevel |
 | `CP_Manchas` | large soft noise in object space | localising any effect so it is not uniform |
 | `CP_Junta`, `CP_Lamina` | stripes at a pitch along the axis; one random value per stripe | stacked washers, planks, laminated parts: per-piece tone |
+| `ZN_<zone>` | `substance.zonas(NOMBRE, LP, {"Mano": [((x, y, z), radius_m), ...]})`: spheres with a smooth falloff, baked from the low poly itself | what happens in ONE place: wood darkened and polished by the hand, finish eaten where the cheek rests, soot and a bright crown at the muzzle, brass rubs at the ejection port, knocks where the gun is set down. Multiply by a grunge |
+| `CP_Relieve_Canto` / `_Hueco` | curvature of the Blender-baked normal (`NORMAL_blender.png`) | crests and valleys of shader relief: dirt in checkering, polish on knurl crests |
 
 Why not Painter's own tools for these: a triplanar grunge has no direction, and
 a UV-projected one changes direction on every island (128 islands on this
@@ -140,6 +142,13 @@ Full example: `reference/example_recipe_knife.py` (118 operations).
 | `sp.py medir`: 25 % of metallic between 0.1 and 0.9 | dust, grease and rust fills with `metallic: 0` at partial opacity over metal | thin dirt layers carry colour and roughness only; 1.6 % after |
 | Blender renders the old textures after `exportar` (and `im.reload()` reloads them happily) | a `.blend` moved from another folder keeps absolute image paths to the old one | `bake.material_final("LP_<set>", {map: path})` with the prop's own `Texturas/` paths before the first check render; look at `image.filepath` |
 | Blued or parkerised steel reads as plastic | modelled as a dark non-metal | bluing is an oxide on steel: `metallic 1`, base colour around #15171C, roughness 0.36; the bare steel underneath only differs in value |
+| Fill with `material="Wood Walnut"` → `QAction already deleted` | the name is a SMART material; `set_material_source` wants a base material, and the bridge's error handler then fails on its own undo lookup and hides the real message (`Expected a substance material`) | Any `QAction already deleted` from `sp_apply_recipe` means "one op raised". Reproduce the suspect op with `sp_exec_python` to read the real error. Base materials: `rs.search(q)` filtered by usage `BASE_MATERIAL` |
+| Same error after changing a generator parameter | `grunge_scale: 3.3`: integer parameters reject floats | integers stay integers |
+| Wood (or any image-filled layer) pure white in the captures | 3 s of quiet is not enough when fills carry bitmaps | `sp.py rehacer` now waits 8 s of quiet; if a capture is white, capture again before changing anything |
+| Diagonal grain relief fighting the grain painted in Painter | the high poly's own wood material has a scanned normal map, and `normal_hp` baked it in | `substance.normal_hp(..., sin_grano=("M_Nogal", ...))` mutes texture normals and keeps the carved relief |
+| Lines look diagonal in a 3/4 orthographic preview | they were not: a pure side view showed them along the axis | check direction claims in an axis-aligned view before hunting a cause |
+| A straight-edged pale band across a stock | `Grunge Wipe Dusty` has straight wipe borders | localise finish changes with `CP_Manchas`, not wipe grunges |
+| `sp.py exportar` → `Errno 22` copying the normal | Blender had the 16-bit map open while rendering | `exportar` retries for 24 s |
 | `AO` 0 on a few percent of the map | faces pressed against another part (sheath layers) | Expected; check they are hidden faces before changing anything |
 
 ## Getting past "procedural"
@@ -162,6 +171,18 @@ What moved it, in order of effect:
 5. **Judge in the render that ships.** Painter's viewport flattered a blade
    that under the studio light showed no fuller. Every iteration ends in a
    1080p Cycles frame of the low poly (15–60 s).
+6. **Use zones.** A generator spreads wear by curvature and occlusion, the same
+   over the whole part. What makes a used object credible is what only happens
+   in one spot. On a shotgun: five `ZN_` masks (hand, cheek, muzzle, ejection
+   port, resting points) carried more than any grunge.
+7. **Scanned wood, not stretched noise.** Grain made from anisotropic noise
+   read as synthetic. A CC0 wood scan as the fill's base colour, roughness and
+   normal, in triplanar (`proy={"mode": "Triplanar", "scale": 3}`) so the grain
+   runs along the prop, then a Multiply tint. Import it first:
+   `sp.py importar <Prop> Texturas/Fuente/<id>/<file>.jpg`. Keep the scan's
+   normal at ~0.15 opacity: at 1.0 an oiled stock reads as barn wood.
+8. **A scratch grunge dense enough to read as texture is too dense**: at
+   Histogram Scan 0.16 fine scratches hid the grain; at 0.05 they are scratches.
 
 `sp.py medir <Set>` prints base colour, roughness and metallic statistics;
 metallic non-binary under ~5 % is the edge-wear transition and is fine.
@@ -205,6 +226,20 @@ written per piece type gave 93 islands at 75.0 %, with zero overlap. Three rules
 Pick the tube's lengthwise seam as the vertex column *nearest* to straight
 down, not the one at exactly 0°: on a 40-sided pommel no column sat at 0°, the
 skin got no seam and unwrapped as a figure eight.
+
+A long gun (`reference/example_uv_seams_shotgun.py`; 8,060 → 20,202 tris, automatic
+unwrap → 104 islands at 77.2 %, 0 overlap, 6.37 px/mm) added:
+
+- A cap behind a 45° chamfer never reaches the angle threshold: barrel and
+  magazine tube unwrapped as a hexagon with a fan at each end. Put the cap seam
+  by normal (`|n·axis| > 0.7`).
+- A tube's lengthwise seam faces the part that covers it (barrel: down, toward
+  the magazine; magazine: up).
+- A symmetric part splits on its symmetry plane (stock: comb and belly lines).
+- A skin longer than the atlas is cut where another part crosses it.
+- A bore is a hidden island no short ray detects (opposite wall 18 mm away):
+  declare it with `tambien=` of `uv.encoger_ocultas`, keeping the 45 mm seen
+  from the muzzle. `uv.encoger_ocultas` and `uv.soldar_uv` now live in `uv.py`.
 
 `uv_density` deviation no longer reads as a defect once hidden islands are
 scaled on purpose: report the density of the visible islands and say which

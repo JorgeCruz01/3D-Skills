@@ -206,13 +206,21 @@ def clases(nombre, lp, extrusion=0.002, res=4096, por_objeto=None):
     return {"bake": r, "ruta": ruta, "clases": nombres}
 
 
-def normal_hp(nombre, lp, extrusion=0.002, res=4096):
+def normal_hp(nombre, lp, extrusion=0.002, res=4096, sin_grano=()):
     """Normal tangente (OpenGL, 16 bits) horneada en Blender desde el high poly CON sus materiales, a
     Texturas/Bakes/NORMAL_blender.png. Hace falta cuando el relieve fino del high poly no es geometria sino
     relieve de material (`M.relieve`: surcos, moleteado, tejido, dibujo de una cantonera): el horneado de Painter
-    solo ve geometria y lo pierde entero. Se le da despues a Painter como mesh map `Normal` (`sp.py normal`)."""
+    solo ve geometria y lo pierde entero. Se le da despues a Painter como mesh map `Normal` (`sp.py normal`).
+    `sin_grano` = materiales cuyo mapa de normales de TEXTURA se apaga durante el horneado (queda su relieve labrado):
+    la veta escaneada del high poly iba en diagonal por la culata y, horneada, peleaba con la veta de Painter."""
     R = prop.rutas(nombre)
     sc = bpy.context.scene
+    apagados = []
+    for mn in sin_grano:
+        for nd in bpy.data.materials[mn].node_tree.nodes:
+            if nd.type == "NORMAL_MAP":
+                apagados.append((nd, nd.inputs["Strength"].default_value))
+                nd.inputs["Strength"].default_value = 0.0
     cop = []
     for o in _hp(con_rotulos=False):
         c = o.copy()
@@ -233,6 +241,8 @@ def normal_hp(nombre, lp, extrusion=0.002, res=4096):
             r = h.hornear(hp, extrusion, muestras=8, margen=16, tipo="NORMAL")
             h.guardar(ruta)
     finally:
+        for nd, v in apagados:
+            nd.inputs["Strength"].default_value = v
         me = hp.data
         bpy.data.objects.remove(hp, do_unlink=True)
         bpy.data.meshes.remove(me)
@@ -327,4 +337,46 @@ def campos(nombre, lp, eje, centro, paso=0.0016, largo=0.05, ancho=0.0006, res=4
             nt.nodes.active = dest
             out[clave] = {"bake": h.hornear(None, muestras=8, margen=24),
                           "ruta": h.guardar(os.path.join(R["texturas_bakes"], "CAMPO_%s%s.png" % (clave, sufijo)))}
+    return out
+
+
+def zonas(nombre, lp, zonas, res=4096):
+    """Mascaras de ZONA DE USO, horneadas desde la propia low poly: `zonas` = {clave: [((x, y, z), radio_m), ...]}.
+    Cada zona vale 1 en el centro de sus esferas y cae suave a 0 en su radio. Es lo que ningun generador de Painter
+    sabe: donde agarra la mano, donde apoya la mejilla, donde sale el fogonazo, donde roza el arma al dejarla.
+    Escribe Texturas/Bakes/ZONA_<clave>.png; `sp_mascaras.py` las deja como Mascaras/ZN_<clave>.png."""
+    R = prop.rutas(nombre)
+    out = {}
+    with _Horno(lp, res, True) as h:
+        nt = h.nt
+        N, L = nt.nodes, nt.links
+        dest = N.active
+        em = N.new("ShaderNodeEmission")
+        sal = next(n for n in N if n.type == "OUTPUT_MATERIAL")
+        L.new(em.outputs[0], sal.inputs[0])
+        geo = N.new("ShaderNodeNewGeometry")
+        for clave, esferas in zonas.items():
+            acum = None
+            for c, r in esferas:
+                d = N.new("ShaderNodeVectorMath")
+                d.operation = "DISTANCE"
+                L.new(geo.outputs["Position"], d.inputs[0])
+                d.inputs[1].default_value = c
+                mr = N.new("ShaderNodeMapRange")
+                mr.interpolation_type = "SMOOTHSTEP"
+                mr.inputs["From Min"].default_value, mr.inputs["From Max"].default_value = 0.0, r
+                mr.inputs["To Min"].default_value, mr.inputs["To Max"].default_value = 1.0, 0.0
+                L.new(d.outputs["Value"], mr.inputs["Value"])
+                if acum is None:
+                    acum = mr.outputs[0]
+                else:
+                    mx = N.new("ShaderNodeMath")
+                    mx.operation = "MAXIMUM"
+                    L.new(acum, mx.inputs[0])
+                    L.new(mr.outputs[0], mx.inputs[1])
+                    acum = mx.outputs[0]
+            L.new(acum, em.inputs[0])
+            N.active = dest
+            out[clave] = {"bake": h.hornear(None, muestras=1, margen=24),
+                          "ruta": h.guardar(os.path.join(R["texturas_bakes"], "ZONA_%s.png" % clave))}
     return out

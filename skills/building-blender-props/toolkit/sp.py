@@ -3,6 +3,7 @@
     python sp.py estado
     python sp.py proyecto <Prop> <Set> [--extrusion 0.007]   crea el .spp, hornea desde el HP e importa las mascaras
     python sp.py normal   <Prop> <Set>                       usa la normal horneada en Blender (relieve de material) como mesh map
+    python sp.py importar <Prop> <ruta en el prop> [...]            imagenes sueltas como textura (un escaneo de Texturas/Fuente)
     python sp.py rehacer  <Prop> [vistas.json]               borra la pila, aplica <Prop>/texturizar_sp.py y captura
     python sp.py ver      <Prop> <vistas.json>               solo capturas
     python sp.py exportar <Prop> <Set>                       exporta e instala TX_<Set>_{BaseColor,Normal,ORM}.png
@@ -24,6 +25,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 RAIZ = os.environ.get("SP_PROPS_ROOT") or os.environ.get("BLENDER_PROPS_ROOT") or os.path.dirname(AQUI)      # carpeta que contiene los props
@@ -179,8 +181,8 @@ def rehacer(prop, vistas=()):
     if seco[2] or not (seco[0] or {}).get("valid"):
         print("receta NO valida:", json.dumps(seco[0], ensure_ascii=False)[:3000])
         return None
-    res = llamar([{"tool": "sp_apply_recipe", "args": {"recipe": rec}}, {"tool": "sp_wait_idle", "args": {"timeout_s": 180, "quiet_ms": 3000}}]
-                 + _capturas(vistas), eco=False)
+    res = llamar([{"tool": "sp_apply_recipe", "args": {"recipe": rec}}, {"tool": "sp_wait_idle", "args": {"timeout_s": 300, "quiet_ms": 8000}}]
+                 + _capturas(vistas), eco=False)       # 3 s de calma no bastan con rellenos de imagen: la madera salia blanca
     d = res[0][0] or {}
     print("receta:", "ERROR " + json.dumps(d, ensure_ascii=False)[:3000] if res[0][2] else "%d ops" % d.get("ops", 0))
     return _recoger(prop, vistas, res[2:])
@@ -215,7 +217,14 @@ def exportar(prop, ts):
     out = {}
     for k, f in pares.items():
         src, dst = os.path.join(R["export"], f), os.path.join(R["tex"], "TX_%s_%s.png" % (corto, k))
-        shutil.copyfile(src, dst)
+        for intento in range(12):                 # Blender tiene el mapa abierto mientras renderiza: Errno 22 al sobrescribir
+            try:
+                shutil.copyfile(src, dst)
+                break
+            except OSError:
+                if intento == 11:
+                    raise
+                time.sleep(2)
         out[k] = (dst, os.path.getsize(dst))
         print("instalado:", dst, os.path.getsize(dst) // 1024, "KB")
     return out
@@ -231,6 +240,8 @@ if __name__ == "__main__":
         proyecto(a[1], a[2], float(a[a.index("--extrusion") + 1]) if "--extrusion" in a else 0.007)
     elif cmd == "normal":
         normal(a[1], a[2])
+    elif cmd == "importar":
+        llamar([{"tool": "sp_import_resource", "args": {"path": u(os.path.join(RAIZ, a[1], f)), "usage": "texture"}} for f in a[2:]])
     elif cmd == "rehacer":
         rehacer(a[1], json.load(open(a[2], encoding="utf8")) if len(a) > 2 else ())
     elif cmd == "ver":

@@ -9,6 +9,7 @@ Escribe Texturas/Bakes/Mascaras/
                           oscurecido junto a la costura), sin la propia clase
     CP_Rayado_Largo.png, CP_Rayado_Ancho.png, CP_Manchas.png, CP_Junta.png, CP_Lamina.png
     CP_Relieve_Canto.png, CP_Relieve_Hueco.png   si existe NORMAL_blender.png: cantos y huecos del relieve de material
+    ZN_<Zona>.png         una por ZONA_<Zona>.png: zonas de uso (mano, mejilla, boca de fuego) de `substance.zonas`
     _ID_previa.png        para mirar
 
 Va fuera de Blender porque usa OpenCV. Imprime el porcentaje del mapa de cada clase: una clase
@@ -68,6 +69,9 @@ def main(carpeta, halos):
         for c, n in enumerate(canales):
             g = im[..., c]
             escribir(os.path.join(D, n + suf + ".png"), g if n == "CP_Junta" else estirar(g, ~vacio))
+    for fich in sorted(f for f in os.listdir(B) if f.startswith("ZONA_") and f.endswith(".png")):      # zonas de uso (`substance.zonas`)
+        escribir(os.path.join(D, "ZN_" + fich[5:]), leer(os.path.join(B, fich))[..., 0])
+        out.setdefault("_zonas", []).append("ZN_" + fich[5:-4])
     pn = os.path.join(B, "NORMAL_blender.png")
     if os.path.exists(pn):
         # Curvatura sacada de la normal horneada en Blender: es la unica que ve el relieve de MATERIAL del high poly
