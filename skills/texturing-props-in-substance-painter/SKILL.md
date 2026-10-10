@@ -152,6 +152,10 @@ Full example: `reference/example_recipe_knife.py` (118 operations).
 | A straight-edged pale band across a stock | `Grunge Wipe Dusty` has straight wipe borders | localise finish changes with `CP_Manchas`, not wipe grunges |
 | `sp.py exportar` → `Errno 22` copying the normal | Blender had the 16-bit map open while rendering | `exportar` retries for 24 s |
 | A black wedge at the heel of a stock; pointed mitres at the forend tip | the low poly had 5–6 sections across an end where the high poly rolls over (`Q.desvio` max 3.4 mm, above the bake extrusion — reported and shipped anyway), and the slab's edge rounding follows distance-to-outline, which mitres at every sharp corner | round the OUTLINE first (morphological opening), give the low poly ~14 sections per rolled end, and treat any `desvio` max above the extrusion as a defect to look at, not a figure to note |
+| A flat part inside a deep pocket bakes with a saw-tooth border | bake rays land on either side of a wall perpendicular to the surface | draw the part as a panel: `sp_paneles.py --clase X --vecina A,B --aplanar 0.2` gives the exact mask, a shadow-gap band (`BD_`) and a flat normal inside |
+| Cycles stills three times slower (100 s vs 34 s) with the Painter PROJECT already closed | Painter keeps the video memory while the application is open (8.8 of 12 GB) | quit the application before final renders; relaunching takes 40 s |
+| A thin rod or wire comes out stripped bare | to `Metal Edge Wear` a 5 mm part is all edge | give the coating back after the generator: `r.mapa(group, "MK_<class>", fusion="LinearDodge", opac=0.7)` |
+| A deep pocket fills with a flat beige or brown slab | the `Dirt` generator saturates where occlusion is total | corner dust and rust at opacity ≤ 0.2 with a low `dirt_level` on props with pockets |
 | `AO` 0 on a few percent of the map | faces pressed against another part (sheath layers) | Expected; check they are hidden faces before changing anything |
 
 ## Getting past "procedural"
@@ -243,6 +247,11 @@ unwrap → 104 islands at 77.2 %, 0 overlap, 6.37 px/mm) added:
 - A bore is a hidden island no short ray detects (opposite wall 18 mm away):
   declare it with `tambien=` of `uv.encoger_ocultas`, keeping the 45 mm seen
   from the muzzle. `uv.encoger_ocultas` and `uv.soldar_uv` now live in `uv.py`.
+
+A sheet-metal gun (`reference/example_uv_seams_smg.py`): **sheet metal is developable, so each body is ONE island**,
+opened along a single line on the face the other body covers. "Flat side vs rounded edge" plus strip cuts gave 311
+islands; this gave 173 at 65.8 %. A swept rod (700 mm of 5 mm wire) gets its seam along one generatrix and a ring
+every 110 mm, marked on the loose part where vertices are still ring-ordered (an edge attribute survives the join).
 
 `uv_density` deviation no longer reads as a defect once hidden islands are
 scaled on purpose: report the density of the visible islands and say which
