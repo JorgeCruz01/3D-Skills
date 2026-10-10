@@ -296,6 +296,25 @@ def _refinar(nombre, caras, angulo_grados):
     return n
 
 
+def _aislar(nombre, caras):
+    """Ultimo recurso quirurgico: costura alrededor de CADA cara solapada, y solo de ellas. El umbral 0 de `_refinar`
+    corta todas las aristas de la isla: por 2 caras que se pisaban dejo una isla de 824 caras en quads sueltos."""
+    ob = bpy.data.objects[nombre]
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bm.faces.ensure_lookup_table()
+    n = 0
+    for i in caras:
+        for e in bm.faces[i].edges:
+            if not e.seam:
+                e.seam = True
+                n += 1
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+    return n
+
+
 def caras_uv_nulas(nombre):
     """Caras con area en el modelo y area UV nula. Una isla que el despliegue no
     resuelve (cerrada, sin borde) se queda con sus UV en un punto: `uv_overlap`
@@ -358,7 +377,9 @@ def desplegar(nombres, margen=0.003, angulo_grados=50, vista=VISTA, extra=None, 
     Red de seguridad: si tras desplegar alguna isla se pisa a si misma, se le
     anaden costuras con los umbrales de `refinado`, uno por pasada, y se vuelve a
     desplegar. Solo se tocan las islas con solape; el resto conserva sus islas
-    grandes. Devuelve en `refinado` cuantas costuras anadio cada pasada."""
+    grandes. Devuelve en `refinado` cuantas costuras anadio cada pasada.
+    Un paso `"aislar"` en `refinado` separa solo las caras solapadas (una isla por cara): para mallas remalladas
+    (QuadriFlow), donde los umbrales bajos trituran islas enteras, usar `refinado=("ejes", 25, 12, "aislar", "aislar")`."""
     info = {n: costuras(n, angulo_grados, vista, extra=extra) for n in nombres}
     info["refinado"] = []
     for paso in (None,) + tuple(refinado):
@@ -367,7 +388,7 @@ def desplegar(nombres, margen=0.003, angulo_grados=50, vista=VISTA, extra=None, 
             for n in nombres:
                 malas = caras_solapadas(n)
                 if malas:
-                    anadidas += _refinar_por_ejes(n, malas) if paso == "ejes" else _refinar(n, malas, paso)
+                    anadidas += _refinar_por_ejes(n, malas) if paso == "ejes" else (_aislar(n, malas) if paso == "aislar" else _refinar(n, malas, paso))
             if not anadidas:
                 continue          # a este umbral no hay nada que cortar: probar el siguiente
             info["refinado"].append({"umbral": paso, "costuras": anadidas})

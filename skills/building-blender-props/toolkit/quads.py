@@ -442,11 +442,20 @@ def ensamblar(nombre, solidos, cortes=(), aspecto=40.0, ocultas=True):
 
 # ------------------------------------------------------------------ remallado en quads
 
-def retopo(ob, caras, vivos=None, semilla=0, contorno=True, suavizar=0):
+def retopo(ob, caras, vivos=None, semilla=0, contorno=True, suavizar=0, escala=1.0):
     """Remalla `ob` en ~`caras` quads con QuadriFlow. `vivos` (grados): marca
     como vivas las aristas de mas de ese angulo y las conserva. Para piezas
     organicas (madera tallada, tela, goma); en mecanica deja los cantos
-    ondulados y hay que comprobar la silueta."""
+    ondulados y hay que comprobar la silueta.
+
+    `escala`: QuadriFlow da por no estanca ("the mesh needs to be manifold") cualquier malla con una arista de menos
+    de 0.1 mm, aunque sea estanca: es su prueba de aristas de longitud cero, con tolerancia fija de 1e-4 unidades. Una
+    pieza pequena medida en metros (un martillo de 40 mm con 20 000 caras) la incumple siempre. Con `escala=100` se
+    remalla cien veces mayor y se devuelve a su tamano."""
+    from mathutils import Matrix
+    if escala != 1.0:
+        ob.data.transform(Matrix.Scale(escala, 4))
+        ob.data.update()
     bpy.ops.object.select_all(action="DESELECT")
     ob.select_set(True)
     bpy.context.view_layer.objects.active = ob
@@ -457,6 +466,9 @@ def retopo(ob, caras, vivos=None, semilla=0, contorno=True, suavizar=0):
     r = bpy.ops.object.quadriflow_remesh(use_mesh_symmetry=False, use_preserve_sharp=vivos is not None,
                                         use_preserve_boundary=contorno, preserve_attributes=False, smooth_normals=False,
                                         mode="FACES", target_faces=int(caras), seed=semilla)
+    if escala != 1.0:
+        ob.data.transform(Matrix.Scale(1.0 / escala, 4))
+        ob.data.update()
     c = censo(ob)
     c["quadriflow"] = list(r)
     return c

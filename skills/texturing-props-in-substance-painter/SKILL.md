@@ -84,6 +84,7 @@ masks + script rebuild it in under a minute.
 | `ZN_<zone>` | `substance.zonas(NOMBRE, LP, {"Mano": [((x, y, z), radius_m), ...]})`: spheres with a smooth falloff, baked from the low poly itself | what happens in ONE place: wood darkened and polished by the hand, finish eaten where the cheek rests, soot and a bright crown at the muzzle, brass rubs at the ejection port, knocks where the gun is set down. Multiply by a grunge |
 | `BD_<class>` | `sp_mascaras.py --suavizar Class:Neighbour:sigma_px` | two classes on ONE part (checkering panel vs wood) are split by high-poly FACES, so the border bakes as a staircase. This rounds it (blur + threshold inside the union, both `MK_` rewritten) and writes the border band: the dark fillet a real checkering panel has, which also hides what is left of the staircase in the normal map |
 | panel `MK_` / `BD_` / `PN_` | `substance.posicion(NOMBRE, LP)` (per-texel object position, 16 bit) + `Bakes/paneles.json` (`{"plano": [0, 2], "normal": 1, "paneles": {name: [[u, v] in metres]}}`) + `sp_paneles.py <prop> --clase X --vecina Y --filete 0.9 --cara 9` | a shape that sits ON a part (checkering panel, label, painted zone) drawn as a CURVE: exact border, fillet of real width in mm, inward gradient. Prefer this to splitting the part by high-poly faces + `--suavizar`: an eight-point polygon reads as a straight-sided patch whatever the texture (client: "they look very low poly"). Limit the high-poly relief with a vertex attribute: `M.relieve(..., atributo="picado", hundido=True)`. Side test in mm from the symmetry plane, not as a fraction of the bounding box (a bolt handle off-centres it and one side went missing) |
+| any exact band or ring in model space | sample `POSICION.png` yourself (`reference/example_position_mask_revolver.py`, 20 lines) | a cylinder's 0.5 mm drag line at a given height: independent of the UVs, exact in millimetres |
 | `CP_Relieve_Canto` / `_Hueco` | curvature of the Blender-baked normal (`NORMAL_blender.png`) | crests and valleys of shader relief: dirt in checkering, polish on knurl crests |
 
 Why not Painter's own tools for these: a triplanar grunge has no direction, and
@@ -156,6 +157,7 @@ Full example: `reference/example_recipe_knife.py` (118 operations).
 | Cycles stills three times slower (100 s vs 34 s) with the Painter PROJECT already closed | Painter keeps the video memory while the application is open (8.8 of 12 GB) | quit the application before final renders; relaunching takes 40 s |
 | A thin rod or wire comes out stripped bare | to `Metal Edge Wear` a 5 mm part is all edge | give the coating back after the generator: `r.mapa(group, "MK_<class>", fusion="LinearDodge", opac=0.7)` |
 | A deep pocket fills with a flat beige or brown slab | the `Dirt` generator saturates where occlusion is total | corner dust and rust at opacity ≤ 0.2 with a low `dirt_level` on props with pockets |
+| White torn patches along a thin rim (trigger guard) in the textured low poly | the low-poly surface there was crumpled, the bake cage missed the high poly | fix the MESH (`vivos` on the remesh), not the bake distance. Render the low poly alone in grey before blaming a map |
 | `AO` 0 on a few percent of the map | faces pressed against another part (sheath layers) | Expected; check they are hidden faces before changing anything |
 
 ## Getting past "procedural"
@@ -252,6 +254,24 @@ A sheet-metal gun (`reference/example_uv_seams_smg.py`): **sheet metal is develo
 opened along a single line on the face the other body covers. "Flat side vs rounded edge" plus strip cuts gave 311
 islands; this gave 173 at 65.8 %. A swept rod (700 mm of 5 mm wire) gets its seam along one generatrix and a ring
 every 110 mm, marked on the loose part where vertices are still ring-ordered (an edge attribute survives the join).
+
+A cast part (revolver frame with its grips, hammer, trigger; `reference/example_remesh_cast_parts_revolver.py`;
+16,018 → 36,598 tris, 65.2 %, 11.98 px/mm, 0 overlap) is not built, it is **remeshed from the high poly**: a cage of
+crossed prisms gives hard edges the normal map cannot round. What that cost:
+
+- QuadriFlow answers `mesh needs to be manifold` on a manifold mesh when edges are shorter than 1e-4 units. Scale the
+  copy ×100 around the remesh (`quads.retopo(..., escala=100.0)`).
+- **Pass `vivos=28` (degrees).** Without it the loops cross the rims of a trigger guard and its joint with the grip
+  comes out crumpled; it only shows in a grey close-up of the low poly ALONE, the textured render hides it behind
+  the normal map until the bake tears there.
+- Relax after snapping (smooth all vertices 0.5, snap to the high poly again, three times): QuadriFlow leaves wavy
+  loops wherever they follow no edge.
+- A straight tube must stay BUILT. Remeshed, a barrel ripples along its length.
+- No loops means no seam lines: cut by face orientation (side `|n.x| > 0.78` vs rim, rim by ±Y/±Z), and add the
+  `"aislar"` refinement steps of `uv.desplegar` instead of lowering the safety-net threshold to 0 (that gave 801
+  islands; `"aislar"` gave ~190). Island borders come out jagged: say so in the README.
+- Do NOT run `uv.soldar_uv` on a remeshed mesh: it left two overlapping faces.
+- Replicated parts (five of six cartridges) overlap the first on purpose: measure overlap on a copy without them.
 
 `uv_density` deviation no longer reads as a defect once hidden islands are
 scaled on purpose: report the density of the visible islands and say which
