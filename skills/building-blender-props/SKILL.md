@@ -307,6 +307,17 @@ rim as a band of another tone, in the high poly too. What replaced it (`referenc
 - Place screws 8 mm inward along the outline NORMAL, not toward the centroid: on a concave stretch the centroid
   is on the wrong side.
 
+## One-piece low poly for a moulded housing
+
+A drill housing (motor barrel, gearbox, grip, foot) was shipped as crossed solids: the silhouette is right, but
+every junction is a hard edge and the fillet is left to the normal map. The grey close-up shows it. Build it the
+way the high poly is built (`reference/example_lowpoly_fused_housing_drill.py`, `_fundida`): fuse the SAME solids
+by voxels (0.8 mm) with the SAME smoothing, apply only the cuts that change the silhouette (flat rear cap, front
+face, battery chamfer), decimate to 140k, QuadriFlow (`vivos=32`, `escala=10`), snap, two light relax passes.
+Measured: 11,341 quads, 44 poles, watertight, p95 0.10 mm from the fused shape; vents, counterbores and grooves
+still go to the maps. UV seams for such a skin are written by orientation: symmetry plane plus caps for the
+housing, dominant normal axis for a box.
+
 ## Skeleton
 
 Condensed from `Farol_Queroseno` (a 265 mm kerosene lantern: one cast body,
