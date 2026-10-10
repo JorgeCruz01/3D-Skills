@@ -142,6 +142,12 @@ pierced by zipper teeth and a patch crossing its panel.
 - **Hide the original low poly while baking against its proxy.** A decimated
   skin weaves in and out of the high poly and occludes it in blotches.
 
+- **A hero low poly wants three times the first budget.** The 5,091-quad skin kept folds and pocket edges in the
+  normal map; at 15,831 quads (QuadriFlow, 20 poles, 0.67 mm snap) silhouette error fell from 0.43 / 0.41 / 0.73 %
+  to 0.10 / 0.05 / 0.56 %. Give the builders a middle setting between "high" and "low" (a module flag the low-poly
+  builder switches on): strap pads with 20 sections instead of 3, piping in 6 sides, webbing sampled every 9.5 mm.
+- A raised patch and the zipper teeth strip are geometry, not bake.
+
 ## What this flow does not do
 
 Worn, empty or draped fabric (it produces a new, stuffed bag); anything that

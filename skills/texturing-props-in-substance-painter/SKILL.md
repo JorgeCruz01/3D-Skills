@@ -158,6 +158,9 @@ Full example: `reference/example_recipe_knife.py` (118 operations).
 | A thin rod or wire comes out stripped bare | to `Metal Edge Wear` a 5 mm part is all edge | give the coating back after the generator: `r.mapa(group, "MK_<class>", fusion="LinearDodge", opac=0.7)` |
 | A deep pocket fills with a flat beige or brown slab | the `Dirt` generator saturates where occlusion is total | corner dust and rust at opacity ≤ 0.2 with a low `dirt_level` on props with pockets |
 | White torn patches along a thin rim (trigger guard) in the textured low poly | the low-poly surface there was crumpled, the bake cage missed the high poly | fix the MESH (`vivos` on the remesh), not the bake distance. Render the low poly alone in grey before blaming a map |
+| A raised patch reads as a shiny hole | it stands 2 mm proud and was baked onto the cloth with a 2 mm cage | anything prouder than the bake extrusion is low-poly geometry |
+| Black buckles and zippers come out beige | three dust layers at 20-60 % stack | on dark parts keep each dust layer under 25 % and read the class mean in the exported map (`MK_<class>` over `BaseColor`) |
+| `QAction already deleted` on the first recipe step | a grunge name that does not exist (`Grunge Leaks Dirty`) | `sp_search_resources` before using a new resource name |
 | `AO` 0 on a few percent of the map | faces pressed against another part (sheath layers) | Expected; check they are hidden faces before changing anything |
 
 ## Getting past "procedural"
@@ -272,6 +275,16 @@ crossed prisms gives hard edges the normal map cannot round. What that cost:
   islands; `"aislar"` gave ~190). Island borders come out jagged: say so in the README.
 - Do NOT run `uv.soldar_uv` on a remeshed mesh: it left two overlapping faces.
 - Replicated parts (five of six cartridges) overlap the first on purpose: measure overlap on a copy without them.
+
+A sewn soft good (backpack; `reference/example_recipe_backpack.py`; 18,698 -> 58,266 tris, 52.0 -> 58.8 %):
+
+- **A sweep carries its seam from the moment it is built.** Six-sided piping has 60 degrees between faces: at a
+  50 degree threshold every face became its own 2 mm strip and coverage sat at 50.5 %. Set
+  `formas.COSTURA_BARRIDO = True` while building the low poly: each `F.barrido` writes a face attribute `cosida`
+  and an edge attribute `costura` (a tube opens along its lowest generatrix; a ribbon along the two corners of its
+  base, so the face against the cloth is its own island) and `uv.costuras` uses them instead of the angle. 59.4 %.
+- Pattern seam planes apply to the cloth only (faces of piece 0), strip cuts to everything else.
+- Shrinking hidden islands and repacking can leave two faces touching: isolate `uv.caras_solapadas` and repeat.
 
 `uv_density` deviation no longer reads as a defect once hidden islands are
 scaled on purpose: report the density of the visible islands and say which

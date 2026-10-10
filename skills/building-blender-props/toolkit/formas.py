@@ -163,7 +163,33 @@ def barrido(nombre, camino, perfil, arriba, coleccion, cerrado=False, suave=True
     if not cerrado:
         caras.append(tuple(range(m)))
         caras.append(tuple((n - 1) * m + j for j in range(m)))
-    return _objeto(nombre, verts, caras, coleccion, suave)
+    ob = _objeto(nombre, verts, caras, coleccion, suave)
+    if COSTURA_BARRIDO:
+        _coser_barrido(ob, verts, np.asarray(perfil, float), n, m)
+    return ob
+
+
+COSTURA_BARRIDO = False      # lo activa el constructor de una low poly: cada barrido lleva escrita su costura UV
+
+
+def _coser_barrido(ob, verts, perfil, n, m):
+    """Escribe en un barrido su costura UV, para `uv.costuras`: atributo de cara `cosida` (la piel del barrido; las
+    tapas no) y de arista `costura` (las generatrices por donde se abre). Un perfil con un solo punto mas bajo (un
+    tubo) se abre por esa generatriz; uno con base plana (una cinta) se abre por las dos esquinas de la base, y la
+    cara de abajo, que va contra la tela, queda en su isla. Sin esto, cada cara de un ribete de seis lados (60
+    grados entre caras) es una tira suelta: 4 166 quads de ribete daban cientos de islas de 2 mm de ancho."""
+    v = perfil[:, 1]
+    bajos = [j for j in range(m) if v[j] < v.min() + 1e-9 * max(1.0, abs(v.min())) + 1e-12]
+    js = {bajos[0]} if len(bajos) == 1 else {min(bajos, key=lambda j: perfil[j, 0]), max(bajos, key=lambda j: perfil[j, 0])}
+    clave = lambda c: (round(c[0] * 1e7), round(c[1] * 1e7), round(c[2] * 1e7))
+    donde = {clave(verts[i]): (i // m, i % m) for i in range(n * m)}
+    me = ob.data
+    ij = [donde.get(clave(x.co)) for x in me.vertices]
+    cos = me.attributes.new("costura", "BOOLEAN", "EDGE")
+    cos.data.foreach_set("value", [bool(ij[a] and ij[b] and ij[a][1] == ij[b][1] and ij[a][1] in js and ij[a][0] != ij[b][0])
+                                   for a, b in (e.vertices for e in me.edges)])
+    car = me.attributes.new("cosida", "BOOLEAN", "FACE")
+    car.data.foreach_set("value", [len({ij[k][0] for k in pl.vertices if ij[k]}) > 1 for pl in me.polygons])
 
 
 def prisma(nombre, contorno, origen, eje, alto, coleccion, bisel=0.0, s=0, suave=False, por_normal=False, tramos=1):

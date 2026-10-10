@@ -169,9 +169,14 @@ def costuras(nombre, angulo_grados=50, vista=VISTA, max_pasadas=6, extra=None, p
     bm.normal_update()
     bm.faces.ensure_lookup_table()
     lim = math.radians(angulo_grados)
+    # barridos con la costura escrita al construirlos (`formas.COSTURA_BARRIDO`): en su piel no rige el angulo
+    cosida, costura = bm.faces.layers.bool.get("cosida"), bm.edges.layers.bool.get("costura")
     for e in bm.edges:
         if len(e.link_faces) != 2:
             e.seam = True
+        elif cosida and costura and (e.link_faces[0][cosida] or e.link_faces[1][cosida]):
+            a, b = e.link_faces
+            e.seam = (a[cosida] != b[cosida]) or bool(e[costura]) or bool(extra and extra(e))
         else:
             e.seam = e.calc_face_angle(0.0) > lim or bool(extra and extra(e))
     anadidas = 0
