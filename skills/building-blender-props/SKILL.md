@@ -286,6 +286,27 @@ changed. Include what was caught reviewing the constants before building.
 `tris`, `pieces`, `textureSets`, `textureResolution`, `mapsPerSet`, the five
 image URLs plus `clayUrl`, `note` (one measured sentence) and `usedIn`.
 
+## One-piece low poly for a slab with a free outline
+
+A guitar body is not row-simple, so it was built as four slabs touching on straight cuts. Every cut showed on the
+rim as a band of another tone, in the high poly too. What replaced it (`reference/example_clean_outline_guitar.py`,
+`reference/example_lowpoly_one_piece_body_guitar.py`):
+
+- **Clean the outline in 2D first** (OpenCV, outside Blender): rasterise the union at 20 px/mm, open then close
+  with a disc, trace. Opening 7 mm removed a tab that was the strap button read as wood by the photo's alpha.
+  Pad the raster by more than the closing radius or the border leaks in.
+- **High poly**: one prism of that outline with the edge rounded along the outline normal
+  (`F.prisma(..., bisel=r, s=8, por_normal=True)`), then `F.fundir` (voxels 0.7 mm, 2 smoothing passes). Watertight,
+  same dimensions.
+- **Low poly**: QuadriFlow on the SHARP-edged prism with `vivos=30` (one loop lands on each rim edge), then
+  `Q.ajustar` to the high poly: the rim loop sits mid-fillet as a uniform chamfer. Remeshing the already rounded
+  high poly put the 3.2 mm fillet inside a 5 mm quad at a different height every time and the silhouette waved.
+  A Blender bevel on that loop leaves triangles and n-gons at every pole (95 and 46).
+- **A 2 mm plate** (pickguard) cannot be remeshed with 5 mm quads: its rim tears. Scale it x12 in Z about its
+  mid-plane, remesh with `vivos=30`, scale back, snap. Do not relax it afterwards: smoothing flattens it.
+- Place screws 8 mm inward along the outline NORMAL, not toward the centroid: on a concave stretch the centroid
+  is on the wrong side.
+
 ## Skeleton
 
 Condensed from `Farol_Queroseno` (a 265 mm kerosene lantern: one cast body,

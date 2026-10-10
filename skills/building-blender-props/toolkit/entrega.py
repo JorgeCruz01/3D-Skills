@@ -46,13 +46,16 @@ def exportar_y_verificar(nombre, objetos_lp, materiales):
     return {"export": ex, "tris": tris, "dims_mm": dims, "ida_y_vuelta": rt}
 
 
-def still(nombre, fichero, direccion, res=(3840, 2160), samples=160, margen=0.02, ocultar=(), relleno=None, lp=False):
+def still(nombre, fichero, direccion, res=(3840, 2160), samples=160, margen=0.02, ocultar=(), relleno=None, lp=False, caja=None):
     """Un still del HIGH POLY desde `direccion` (objeto -> camara). `relleno` =
     (posicion, potencia_W, tamano_m) anade una luz de area temporal mirando al
     centro del prop, para tomas donde las luces del rig no llegan.
     `lp=True` renderiza la LOW POLY con sus texturas: es lo que toca cuando las
     texturas se hicieron en Substance Painter, porque el high poly ya no lleva
-    el material que se entrega."""
+    el material que se entrega.
+    `caja` = ((x0, y0, z0), (x1, y1, z1)) en metros: encuadra esa caja y no el prop entero (el puente de una
+    guitarra esta en un extremo: acercar con `margen` negativo lleva al centro del bbox, que es el mastil). Las
+    luces siguen escaladas al prop."""
     R = prop.rutas(nombre)
     sc = bpy.context.scene
     _ver(hp=not lp, lp=lp, extra_ocultos=ocultar)
@@ -60,7 +63,15 @@ def still(nombre, fichero, direccion, res=(3840, 2160), samples=160, margen=0.02
     estudio.escalar_luces(HP)
     cam = bpy.data.objects["CAM_Beauty"]
     cam["base_dir"] = list(Vector(direccion).normalized())
-    e = estudio.encuadrar("CAM_Beauty", HP, margen, res)
+    if caja:
+        previo = estudio._bbox
+        estudio._bbox = lambda _c: (Vector(caja[0]), Vector(caja[1]))
+        try:
+            e = estudio.encuadrar("CAM_Beauty", HP, margen, res)
+        finally:
+            estudio._bbox = previo
+    else:
+        e = estudio.encuadrar("CAM_Beauty", HP, margen, res)
     luz = None
     if relleno:
         ld = bpy.data.lights.new("_relleno", "AREA")
@@ -149,7 +160,7 @@ def maestros_1610(nombre, hero, parte, lp=False, grosor=0.0005, vistas=(), objet
     """PNG maestros 3200x2000 para la sesion del portafolio, en `Renders/Portafolio_16x10/` (ESTANDAR_LAMINAS.md).
     Se rueda por partes para no pasar del tiempo de una llamada:
       parte "render" -> render.png y clay.png          parte "split" -> split.png y wireframe.png
-      parte "vistas" -> view-N.png, con `vistas` = [(N, direccion, margen)]
+      parte "vistas" -> view-N.png, con `vistas` = [(N, direccion, margen)] o [(N, direccion, margen, caja)]
     `lp=True`: render, split y vistas son de la low poly texturizada; la arcilla es siempre del high poly."""
     R = prop.rutas(nombre)
     dst = os.path.join(os.path.dirname(R["renders_portafolio"]), "Portafolio_16x10")
@@ -162,8 +173,8 @@ def maestros_1610(nombre, hero, parte, lp=False, grosor=0.0005, vistas=(), objet
         s = arcilla(nombre, hero, fichero=rel("clay.png"), res=RES_1610)
         out["clay"] = (s["ok"], s["encuadre"], s["t"])
     elif parte == "vistas":
-        for n, d, m in vistas:
-            s = still(nombre, rel("view-%d.png" % n), d, res=RES_1610, margen=m, lp=lp)
+        for n, d, m, *resto in vistas:
+            s = still(nombre, rel("view-%d.png" % n), d, res=RES_1610, margen=m, lp=lp, caja=resto[0] if resto else None)
             out["view-%d" % n] = (s["ok"], s["encuadre"], s["t"])
     elif parte == "split":
         objetos_lp = objetos_lp or [o.name for o in bpy.data.collections[LP].all_objects if o.type == "MESH"]

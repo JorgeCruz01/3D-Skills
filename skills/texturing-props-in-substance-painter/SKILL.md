@@ -164,7 +164,19 @@ Full example: `reference/example_recipe_knife.py` (118 operations).
 | One part grey and banded while its neighbours of the same class are fine | the high-poly part is inside-out: its outer face bakes AO ~0 and an empty normal | `verifications.inverted_solids` before baking; read AO and the Blender normal over that part's `MK_` (use `POSICION.png` to keep only its outer face) |
 | A recessed lens or panel comes out brown | `Dirt` saturates on anything sunk inside a rim | `dirt_level` ~0.12 on recessed glass |
 | A 1080p Cycles check takes 8 minutes instead of 9 seconds | Painter open: 11.5 of 12.3 GB of video memory | loop: open Painter, `rehacer`, `exportar`, quit Painter, render |
+| Thin parts stamped onto the surface under them (strings on a fretboard: a silver line, a groove and a shadow under each) | they pass closer to that surface than the bake extrusion, so its rays hit them first | bake classes, normal and Painter's maps WITHOUT them (unlink the object while baking and exporting the high poly) and take their mask from the low poly itself: bake a face attribute to an image (`reference/example_mask_from_lowpoly_attribute_guitar.py`; `formas.COSTURA_BARRIDO` already tags every sweep as `cosida`), then subtract it from the other classes |
+| A black part looks burnt, or a pale one blown white, in one still only | the key light mirrors in it from that camera | try three or four camera directions before touching roughness: raising roughness turns the reflection into a grey haze, which is the burnt look |
+| The layers in Painter are the previous recipe | the recipe file was rewritten by a script and the editor's write was refused; `rehacer` applied the old file | compare the operation count `sp.py rehacer` prints with the one you expect |
 | `AO` 0 on a few percent of the map | faces pressed against another part (sheath layers) | Expected; check they are hidden faces before changing anything |
+
+## Decide the object's age before the first layer
+
+Every recipe before the guitar was a used object, and the guitar was made used by habit: worn lacquer, pick
+scratches, grime. The client rejected it: he wanted it NEW. Ask what state the reference shows; if nothing says,
+state the state you are about to build before building it. Showroom instruments, lab equipment and products are
+new. A new object is not zero layers: base colour, the scan under the finish, and a barely visible gloss variation
+(`reference/example_recipe_factory_new_guitar.py`, 20 + 49 operations). `sp.py medir` will warn that roughness is
+almost uniform; on a new lacquer that is the brief.
 
 ## Getting past "procedural"
 
@@ -298,6 +310,15 @@ Two texture sets in one prop (gas mask on a display bust; `reference/example_rec
   poly holding only that set's faces. A plain set (the bust) needs no Blender masks at all, only generators.
 - Faces pressed against ANOTHER object are invisible to `uv.encoger_ocultas` (its ray only tests the same mesh):
   declare them with `tambien=` (here: faces looking at the bust). Visible density 6.85 -> 7.50 px/mm.
+
+A flat body with a free outline (guitar; `building-blender-props/reference/example_lowpoly_one_piece_body_guitar.py`):
+
+- **Unwrap it by hand, it is three formulas.** Top and back are planar projections (the back mirrored), side by
+  side; the rim is (arc length along the outline, height) in three straight strips. Zero distortion, exact
+  density, 61.6 % against 44 % from the automatic unwrap with the same seams. Rim faces that fold at concave
+  corners (arc length jumps between two outline segments) are moved out one by one: 29 of 12,160.
+- `entrega.still(..., caja=((x0, y0, z0), (x1, y1, z1)))` frames a box instead of the whole prop: a detail at one
+  end of a long prop cannot be reached with a negative margin (that zooms on the bounding-box centre).
 
 `uv_density` deviation no longer reads as a defect once hidden islands are
 scaled on purpose: report the density of the visible islands and say which
