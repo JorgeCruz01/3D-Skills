@@ -82,6 +82,7 @@ masks + script rebuild it in under a minute.
 | `CP_Manchas` | large soft noise in object space | localising any effect so it is not uniform |
 | `CP_Junta`, `CP_Lamina` | stripes at a pitch along the axis; one random value per stripe | stacked washers, planks, laminated parts: per-piece tone |
 | `ZN_<zone>` | `substance.zonas(NOMBRE, LP, {"Mano": [((x, y, z), radius_m), ...]})`: spheres with a smooth falloff, baked from the low poly itself | what happens in ONE place: wood darkened and polished by the hand, finish eaten where the cheek rests, soot and a bright crown at the muzzle, brass rubs at the ejection port, knocks where the gun is set down. Multiply by a grunge |
+| `BD_<class>` | `sp_mascaras.py --suavizar Class:Neighbour:sigma_px` | two classes on ONE part (checkering panel vs wood) are split by high-poly FACES, so the border bakes as a staircase. This rounds it (blur + threshold inside the union, both `MK_` rewritten) and writes the border band: the dark fillet a real checkering panel has, which also hides what is left of the staircase in the normal map |
 | `CP_Relieve_Canto` / `_Hueco` | curvature of the Blender-baked normal (`NORMAL_blender.png`) | crests and valleys of shader relief: dirt in checkering, polish on knurl crests |
 
 Why not Painter's own tools for these: a triplanar grunge has no direction, and
