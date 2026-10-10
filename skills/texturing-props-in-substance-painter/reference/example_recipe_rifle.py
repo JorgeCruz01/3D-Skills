@@ -7,6 +7,7 @@ Aspecto: fusil de caza cuidado, con temporadas de monte. Nogal barnizado, brilla
 y mate donde apoya la mejilla; picado oscuro y pulido por la mano. Pavonado profundo que blanquea en la boca, en la
 palanca del cerrojo y en los cantos del cajon. Visor de aluminio anodizado negro mate con el canto pelado a metal.
 
+MK_Nogal_Picado, BD_ y PN_ salen de los paneles dibujados como curvas (`sp_paneles.py`), no de caras del high poly.
 Mascaras (Texturas/Bakes/Mascaras/): MK_ por material y por pieza; ZN_ zonas de uso (Mano, Mejilla, Boca, Accion,
 Apoyo: `substance.zonas`); CP_ ruido orientado al canon a dos escalas; CP_Relieve_* crestas y fondos del picado y de la
 cantonera, sacados de la normal de Blender (`substance.normal_hp(..., sin_grano=...)` + `sp.py normal`).
@@ -125,14 +126,14 @@ def madera(r):
     r.grunge(f, "Grunge Scratches Rough", 2.2, fusion="Multiply")
     r.escaneo(f, 0.2, 0.75)
     # picado: sin barniz, mas oscuro, con el fondo sucio y las crestas pulidas por la mano
-    r.capa("Picado: madera sin barniz", M, {"baseColor": "#3A190B", "roughness": 0.5}, opac=0.75, clases=("Nogal_Picado",))
+    r.capa("Picado: madera sin barniz", M, {"baseColor": "#4A2010", "roughness": 0.48}, opac=0.6, clases=("Nogal_Picado",))
     f = r.capa("Picado: fondo sucio", M, {"baseColor": "#120805", "roughness": 0.75}, opac=0.85, clases=("Nogal_Picado",))
     r.mapa(f, "CP_Relieve_Hueco", fusion="Multiply")
     r.escaneo(f, 0.7, 0.4)
     f = r.capa("Picado: cresta pulida", M, {"baseColor": "#40200F", "roughness": 0.28}, opac=0.5, clases=("Nogal_Picado",))
     r.mapa(f, "CP_Relieve_Canto", fusion="Multiply")
     r.escaneo(f, 0.55, 0.4)
-    f = r.capa("Picado: filete del borde", M, {"baseColor": "#150904", "roughness": 0.6, "height": -0.04}, opac=0.9)
+    f = r.capa("Picado: filete del borde", M, {"baseColor": "#1E0E07", "roughness": 0.55, "height": -0.03}, opac=0.7)
     r.mapa(f, "BD_Nogal_Picado")
     f = r.capa("Mugre en rincones", M, {"baseColor": "#170C06", "roughness": 0.7}, opac=0.7)
     r.gen(f, "Dirt", {"dirt_level": 0.42, "dirt_contrast": 0.5, "grunge_amount": 0.7})

@@ -380,3 +380,37 @@ def zonas(nombre, lp, zonas, res=4096):
             out[clave] = {"bake": h.hornear(None, muestras=1, margen=24),
                           "ruta": h.guardar(os.path.join(R["texturas_bakes"], "ZONA_%s.png" % clave))}
     return out
+
+
+def posicion(nombre, lp, res=4096):
+    """Posicion de cada texel en espacio de objeto, horneada desde la propia low poly: R, G, B = x, y, z normalizados
+    a la caja de la malla. Escribe Texturas/Bakes/POSICION.png (16 bits) y POSICION.json con la caja en metros. Con
+    ella un script fuera de Blender puede sacar mascaras EXACTAS de cualquier forma definida en coordenadas del
+    modelo (un panel de picado dibujado como curva), con distancias en milimetros reales y no en pixeles de UV."""
+    R = prop.rutas(nombre)
+    ob = bpy.data.objects[lp]
+    co = np.empty(len(ob.data.vertices) * 3, np.float32)
+    ob.data.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3)
+    lo, hi = co.min(0) - 1e-4, co.max(0) + 1e-4
+    ruta = os.path.join(R["texturas_bakes"], "POSICION.png")
+    with _Horno(lp, res, True, flotante=True) as h:
+        nt = h.nt
+        N, L = nt.nodes, nt.links
+        dest = N.active
+        em = N.new("ShaderNodeEmission")
+        sal = next(n for n in N if n.type == "OUTPUT_MATERIAL")
+        L.new(em.outputs[0], sal.inputs[0])
+        geo = N.new("ShaderNodeNewGeometry")
+        mp = N.new("ShaderNodeMapping")
+        mp.vector_type = "POINT"
+        mp.inputs["Location"].default_value = tuple(float(-lo[i] / (hi[i] - lo[i])) for i in range(3))
+        mp.inputs["Scale"].default_value = tuple(float(1.0 / (hi[i] - lo[i])) for i in range(3))
+        L.new(geo.outputs["Position"], mp.inputs["Vector"])
+        L.new(mp.outputs[0], em.inputs[0])
+        N.active = dest
+        r = h.hornear(None, muestras=1, margen=24)
+        h.guardar(ruta)
+    with open(ruta[:-4] + ".json", "w", encoding="utf8") as fh:
+        json.dump({"min": [float(x) for x in lo], "max": [float(x) for x in hi]}, fh)
+    return {"bake": r, "ruta": ruta}

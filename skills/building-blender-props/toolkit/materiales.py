@@ -282,7 +282,7 @@ def asignar(objeto, material, limpiar=True):
 
 
 def relieve(nombre, tipo, paso, fondo, caja=None, x_min=None, angulo=30.0, tinte=0.0, color_tinte=(0.25, 0.25, 0.25), plano="YZ",
-            elipse=None, hundido=False):
+            elipse=None, hundido=False, atributo=None):
     """Anade a un material ya creado un relieve fino por sombreado (nodo Bump), en
     coordenadas de objeto, para detalle que no merece geometria y que el bake si
     recoge en el mapa de normales.
@@ -296,7 +296,9 @@ def relieve(nombre, tipo, paso, fondo, caja=None, x_min=None, angulo=30.0, tinte
     plano YZ; `x_min` deja el relieve solo donde |x| supera ese valor.
     `elipse` = ((cy, cz), (r_largo, r_corto), grados): la zona es una elipse girada en ese plano (el panel de picado
     de un pistolete, que va inclinado). `hundido`: fuera de la zona la superficie queda a la altura de las crestas y
-    no a la de los valles: el picado se LABRA en la madera en vez de sobresalir de ella con un escalon en el borde."""
+    no a la de los valles: el picado se LABRA en la madera en vez de sobresalir de ella con un escalon en el borde.
+    `atributo`: nombre de un atributo de vertice (0..1) que hace de zona: sirve para un panel de contorno cualquiera
+    (curvo, con remates en punta) sin partir la pieza en materiales por caras, que deja el borde en escalera."""
     import math
     m = bpy.data.materials[nombre]
     N, L = m.node_tree.nodes, m.node_tree.links
@@ -377,6 +379,10 @@ def relieve(nombre, tipo, paso, fondo, caja=None, x_min=None, angulo=30.0, tinte
         ve = mat("MULTIPLY", mat("ADD", mat("MULTIPLY", dy, -s_), mat("MULTIPLY", dz, c_)), 1.0 / rb)
         t = mat("LESS_THAN", mat("ADD", mat("MULTIPLY", ue, ue), mat("MULTIPLY", ve, ve)), 1.0)
         mascara = t if mascara is None else mat("MULTIPLY", mascara, t)
+    if atributo:
+        at = N.new("ShaderNodeAttribute")
+        at.attribute_name = atributo
+        mascara = at.outputs["Fac"] if mascara is None else mat("MULTIPLY", mascara, at.outputs["Fac"])
     if mascara is not None:
         if hundido:
             alto = mat("SUBTRACT", 1.0, mat("MULTIPLY", mat("SUBTRACT", 1.0, alto), mascara))
