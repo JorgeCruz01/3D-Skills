@@ -173,18 +173,23 @@ def _recoger(prop, vistas, res):
 
 def rehacer(prop, vistas=()):
     """Borra las capas que haya y aplica la receta del prop. Determinista: el mismo script da la misma pila.
-    (No se usa sp_undo: en 12.1 revienta con 'QAction already deleted'.)"""
-    r = _receta(prop)
-    st = llamar([{"tool": "sp_get_layer_stack", "args": {"texture_set": r.ts, "max_depth": 0}}], eco=False)[0][0]
-    rec = r.json(borrar=[l["uid"] for l in st["layers"]])
-    seco = llamar([{"tool": "sp_apply_recipe", "args": {"recipe": rec, "dry_run": True}}], eco=False)[0]
-    if seco[2] or not (seco[0] or {}).get("valid"):
-        print("receta NO valida:", json.dumps(seco[0], ensure_ascii=False)[:3000])
-        return None
-    res = llamar([{"tool": "sp_apply_recipe", "args": {"recipe": rec}}, {"tool": "sp_wait_idle", "args": {"timeout_s": 300, "quiet_ms": 8000}}]
-                 + _capturas(vistas), eco=False)       # 3 s de calma no bastan con rellenos de imagen: la madera salia blanca
-    d = res[0][0] or {}
-    print("receta:", "ERROR " + json.dumps(d, ensure_ascii=False)[:3000] if res[0][2] else "%d ops" % d.get("ops", 0))
+    (No se usa sp_undo: en 12.1 revienta con 'QAction already deleted'.)
+    `construir()` puede devolver una lista de recetas, una por texture set (mascara + busto)."""
+    recetas = _receta(prop)
+    recetas = recetas if isinstance(recetas, (list, tuple)) else [recetas]
+    for k, r in enumerate(recetas):
+        ultima = k == len(recetas) - 1
+        st = llamar([{"tool": "sp_get_layer_stack", "args": {"texture_set": r.ts, "max_depth": 0}}], eco=False)[0][0]
+        rec = r.json(borrar=[l["uid"] for l in st["layers"]])
+        seco = llamar([{"tool": "sp_apply_recipe", "args": {"recipe": rec, "dry_run": True}}], eco=False)[0]
+        if seco[2] or not (seco[0] or {}).get("valid"):
+            print("receta NO valida (%s):" % r.ts, json.dumps(seco[0], ensure_ascii=False)[:3000])
+            return None
+        # 3 s de calma no bastan con rellenos de imagen: la madera salia blanca
+        res = llamar([{"tool": "sp_apply_recipe", "args": {"recipe": rec}}, {"tool": "sp_wait_idle", "args": {"timeout_s": 300, "quiet_ms": 8000}}]
+                     + (_capturas(vistas) if ultima else []), eco=False)
+        d = res[0][0] or {}
+        print("receta %s:" % r.ts, "ERROR " + json.dumps(d, ensure_ascii=False)[:3000] if res[0][2] else "%d ops" % d.get("ops", 0))
     return _recoger(prop, vistas, res[2:])
 
 

@@ -161,6 +161,9 @@ Full example: `reference/example_recipe_knife.py` (118 operations).
 | A raised patch reads as a shiny hole | it stands 2 mm proud and was baked onto the cloth with a 2 mm cage | anything prouder than the bake extrusion is low-poly geometry |
 | Black buckles and zippers come out beige | three dust layers at 20-60 % stack | on dark parts keep each dust layer under 25 % and read the class mean in the exported map (`MK_<class>` over `BaseColor`) |
 | `QAction already deleted` on the first recipe step | a grunge name that does not exist (`Grunge Leaks Dirty`) | `sp_search_resources` before using a new resource name |
+| One part grey and banded while its neighbours of the same class are fine | the high-poly part is inside-out: its outer face bakes AO ~0 and an empty normal | `verifications.inverted_solids` before baking; read AO and the Blender normal over that part's `MK_` (use `POSICION.png` to keep only its outer face) |
+| A recessed lens or panel comes out brown | `Dirt` saturates on anything sunk inside a rim | `dirt_level` ~0.12 on recessed glass |
+| A 1080p Cycles check takes 8 minutes instead of 9 seconds | Painter open: 11.5 of 12.3 GB of video memory | loop: open Painter, `rehacer`, `exportar`, quit Painter, render |
 | `AO` 0 on a few percent of the map | faces pressed against another part (sheath layers) | Expected; check they are hidden faces before changing anything |
 
 ## Getting past "procedural"
@@ -286,6 +289,16 @@ A sewn soft good (backpack; `reference/example_recipe_backpack.py`; 18,698 -> 58
 - Pattern seam planes apply to the cloth only (faces of piece 0), strip cuts to everything else.
 - Shrinking hidden islands and repacking can leave two faces touching: isolate `uv.caras_solapadas` and repeat.
 
+Two texture sets in one prop (gas mask on a display bust; `reference/example_recipe_two_sets_gas_mask.py`):
+
+- One Painter project holds both sets: the FBX has two materials, `sp_bake` bakes both, `construir()` returns a
+  LIST of recipes (one per set), `sp.py rehacer` applies them in turn and `sp.py exportar <Prop> <Set>` is called
+  once per set. `sp.py normal` sets the Blender normal on the named set only.
+- Blender masks bake onto ONE atlas and the two sets share 0-1: bake them against a temporary copy of the low
+  poly holding only that set's faces. A plain set (the bust) needs no Blender masks at all, only generators.
+- Faces pressed against ANOTHER object are invisible to `uv.encoger_ocultas` (its ray only tests the same mesh):
+  declare them with `tambien=` (here: faces looking at the bust). Visible density 6.85 -> 7.50 px/mm.
+
 `uv_density` deviation no longer reads as a defect once hidden islands are
 scaled on purpose: report the density of the visible islands and say which
 ones were reduced.
@@ -306,8 +319,7 @@ roughness variation and fingerprints, one short recipe.
 
 Hand-painted strokes (a specific scratch at a specific place), projection of a
 decal onto a curved face inside Painter (bake it in Blender to UV space and
-import it as a mask), anything on a UDIM layout, more than one set per project
-in one call (untested), Painter versions other than 12.1 (untested).
+import it as a mask), anything on a UDIM layout, Painter versions other than 12.1 (untested).
 
 ## Checklist
 

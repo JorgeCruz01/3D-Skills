@@ -1517,3 +1517,33 @@ def self_intersections(name):
     bm.free()
     return {"ok": n > 0 and not crossing, "evaluated": n, "crossing_faces": len(crossing)}
 
+
+def inverted_solids(collection, min_cm3=0.05):
+    """Closed parts whose faces point INWARD (negative signed volume).
+
+    Real case: a nape pad built as a flat prism and then wrapped onto a head came out inside-out. Every render
+    looked right (Cycles shades both sides) and every geometry gate passed. At bake time its outer face received
+    nothing: ambient occlusion 0.05, an empty normal, and the texturing tool painted it grey with bands. It had
+    shipped that way once already. Run before any bake.
+
+    Returns {"ok", "inverted": {name: cm3}, "checked"}. Open or near-zero-volume parts are skipped: the sign of
+    an open surface's volume means nothing.
+    """
+    import bmesh
+    col = bpy.data.collections[collection]
+    inverted, checked = {}, 0
+    for o in col.all_objects:
+        if o.type != "MESH":
+            continue
+        bm = bmesh.new()
+        bm.from_mesh(o.data)
+        closed = all(e.is_manifold for e in bm.edges)
+        v = bm.calc_volume(signed=True) * 1e6 if closed else 0.0
+        bm.free()
+        if not closed or abs(v) < min_cm3:
+            continue
+        checked += 1
+        if v < 0:
+            inverted[o.name] = round(v, 2)
+    return {"ok": not inverted, "inverted": inverted, "checked": checked}
+
