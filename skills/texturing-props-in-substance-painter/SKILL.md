@@ -359,6 +359,22 @@ Mass-coloured plastic that scratches instead of chipping (hard hat; `reference/e
 - **Look at the exported base colour as a sheet before accepting the UVs:** a seam on the symmetry plane had cut the
   brand name into two islands; no gate saw it. A band with lettering is cut at the sides.
 
+A NEW, photoreal product (gamepad; `reference/example_recipe_new_product_gamepad.py`):
+
+- **New is made believable by finishes, not dirt.** One roughness per plastic (piano black 0.11, satin 0.28, matt
+  0.46, rubber 0.74) and none of them flat; no wear, dust or fingerprints.
+- **Put an unmasked base fill under every group.** Class masks are blurred, so on the border between two classes
+  neither reaches 1 and Painter's default grey shows as a light fringe around every part and along the parting line.
+- **Plastic grain lives at texel size.** `Gaussian Noise` at scale 32 made 1.5 mm lumps and the shell read as
+  leather; `White Noise Fast` (0.06 mm at 16 px/mm) plus one octave at scale 220 reads as injection-moulded.
+- **A hole baked onto a flat face reads as a bump.** Give it a floor in the high poly with its own material, so it
+  gets a class and can be painted black.
+- **A feature under three voxels does not survive the remesh:** a 0.5 mm parting groove at 0.25 mm voxels came out
+  beaded and baked as a dotted stitch. Check the colour map first (the line was not there), then the mesh; the
+  bake had 8 samples and was not the cause. Remeshed at 0.13 mm.
+- **Never bake relief on a UV seam:** the groove was moved 0.9 mm off the plane where the shell is cut.
+- Black plastic at sRGB 41 rendered grey under a bright studio; 27 reads black.
+
 A flat body with a free outline (guitar; `building-blender-props/reference/example_lowpoly_one_piece_body_guitar.py`):
 
 - **Unwrap it by hand, it is three formulas.** Top and back are planar projections (the back mirrored), side by
