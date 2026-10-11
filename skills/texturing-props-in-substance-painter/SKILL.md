@@ -319,6 +319,20 @@ Two texture sets in one prop (gas mask on a display bust; `reference/example_rec
 - Faces pressed against ANOTHER object are invisible to `uv.encoger_ocultas` (its ray only tests the same mesh):
   declare them with `tambien=` (here: faces looking at the bust). Visible density 6.85 -> 7.50 px/mm.
 
+Used painted sheet steel, two sets with their own classes (pallet truck; `reference/example_recipe_two_sets_used_pallet_truck.py`):
+
+- **A directional scratch field only goes where its cause is.** `CP_Rayado_Largo` times blotches over the whole
+  chassis gave tiger stripes that belonged to nothing. Long scratches come from pallets dragging on top of the
+  forks: give that its own zone (a chain of spheres along the fork) and nowhere else.
+- **Multiply the zone in AFTER the threshold.** `mapa(field)`, `mapa(zone, Multiply)`, `escaneo` let nothing
+  through (the product of two mid values never reaches the scan position); `mapa(field)`, `escaneo`,
+  `mapa(zone, Multiply)` does.
+- **Class masks for both sets:** bake the first set's classes with `por_objeto` renaming EVERY high-poly piece
+  with a prefix (`C_Pintura`, `C_Tinta`), run `sp_mascaras.py`, rename `ID_clases.*`, then bake the second set
+  plainly. Fields use `sufijo="_C"`, zones a `C_` key. Nothing is overwritten.
+- **Do not fuse welded sheet metal into a skin.** Plates crossing at a hard edge are what the real part is; fuse
+  only what comes out of a mould. The grey close-up of the low poly decides.
+
 A flat body with a free outline (guitar; `building-blender-props/reference/example_lowpoly_one_piece_body_guitar.py`):
 
 - **Unwrap it by hand, it is three formulas.** Top and back are planar projections (the back mirrored), side by
