@@ -414,3 +414,44 @@ def posicion(nombre, lp, res=4096):
     with open(ruta[:-4] + ".json", "w", encoding="utf8") as fh:
         json.dump({"min": [float(x) for x in lo], "max": [float(x) for x in hi]}, fh)
     return {"bake": r, "ruta": ruta}
+
+
+def por_set(nombre, lp, sets, extrusion=0.003):
+    """Clases, campos y zonas de un prop de VARIOS sets, set por set, contra una copia temporal de la low poly con
+    solo las caras de ese set (los sets comparten el 0-1 y hornean sobre un atlas).
+    `sets` = {sufijo: dict(mat="LP_X", por_objeto={...}, eje=(x, y, z), centro=(x, y, z), zonas={clave: [((x, y, z), r), ...]})}.
+    Deja ID_clases_<sufijo>.png/.json, CAMPO_*_<sufijo>.png y ZONA_<clave>.png (la clave ya lleva el prefijo que se
+    quiera). Despues: `python _herramientas/sp_mascaras_sets.py <Prop> <sufijo> ...`, que saca MK_<sufijo>_<clase>.
+    Nacio tras hacerlo a mano en transpaleta, farol, casco, grupo y soldadora."""
+    import bmesh
+    R = prop.rutas(nombre)
+    bk = R["texturas_bakes"]
+    out = {}
+    for suf, c in sets.items():
+        base = bpy.data.objects[lp]
+        o = base.copy()
+        o.data = base.data.copy()
+        o.name = o.data.name = "_LP_solo_" + suf
+        bpy.data.collections["LP Collection"].objects.link(o)
+        k = [m.name for m in o.data.materials].index(c["mat"])
+        bm = bmesh.new()
+        bm.from_mesh(o.data)
+        bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.material_index != k], context="FACES")
+        bm.to_mesh(o.data)
+        bm.free()
+        co = [v.co for v in o.data.vertices]
+        caja = [[round(min(p[i] for p in co), 3) for i in range(3)], [round(max(p[i] for p in co), 3) for i in range(3)]]
+        try:
+            cl = clases(nombre, o.name, extrusion=extrusion, por_objeto=c.get("por_objeto"))["clases"]
+            for e in (".png", ".json"):
+                os.replace(os.path.join(bk, "ID_clases" + e), os.path.join(bk, "ID_clases_%s%s" % (suf, e)))
+            campos(nombre, o.name, c.get("eje", (0, 0, 1)), c.get("centro", (0, 0, 0)), largo=c.get("largo", 0.06), ancho=c.get("ancho", 0.0008),
+                   sufijo="_" + suf)
+            if c.get("zonas"):
+                zonas(nombre, o.name, c["zonas"])
+        finally:
+            d = o.data
+            bpy.data.objects.remove(o)
+            bpy.data.meshes.remove(d)
+        out[suf] = {"clases": cl, "caja": caja}
+    return out

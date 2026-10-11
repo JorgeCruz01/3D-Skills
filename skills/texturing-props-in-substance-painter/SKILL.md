@@ -375,6 +375,25 @@ A NEW, photoreal product (gamepad; `reference/example_recipe_new_product_gamepad
 - **Never bake relief on a UV seam:** the groove was moved 0.9 mm off the plane where the shell is cut.
 - Black plastic at sRGB 41 rendered grey under a bright studio; 27 reads black.
 
+Several sets, one tool (welder, lathe, cine camera, contactor; `reference/example_recipe_one_function_three_sets_lathe.py`):
+
+- **`substance.por_set` + `sp_mascaras_sets.py` replace the manual per-set bake.** `por_set(prop, lp, {suffix:
+  dict(mat="LP_X", eje=..., centro=..., zonas={...})})` bakes classes, fields and zones against a temporary copy of
+  the low poly holding only that set's faces; `python sp_mascaras_sets.py <Prop> <suffix>...` writes
+  `MK_<suffix>_<class>`. Done by hand on five props before it became a function.
+- **One painting function, called once per set with the class prefix** (`_torno(r, "B_")`). Parts of one material
+  land in every set; a recipe written per set leaves them in the grey fallback (welder front panel: knobs, sockets
+  and display came out unpainted on the set that did not "own" them).
+- **Histogram Scan: a higher position means MORE white.** `escaneo(f, 0.9, 0.9)` on a spatter layer covered the
+  whole lid brown; sparse marks want 0.05-0.15.
+- **A tiled spot noise at high scale is a visible grid.** `BnW Spots 1` at scale 30 on a flat tray rendered as a
+  regular lattice of dots; `Grunge Dirt` thresholded low gives irregular swarf.
+- **`Dirt` saturates inside any recess, not only inside a globe:** terminal screws sitting in their wells came out
+  black. Use a thresholded grunge on parts that live in a hole.
+- **Never stop Painter while an `sp.py` call may still be running.** A call that outlived the shell timeout went to
+  the background; killing Painter then cut the export (`ReadError`). Check the texture timestamps before trusting them.
+- **Measure a highlight before fixing it.** A bright strip on a lid looked blown; largest blob at L > 250 was 0 %.
+
 Three sets sharing class names (portable generator; `reference/example_recipe_three_sets_used_generator.py`):
 
 - **A paint group needs its OWN class mask.** A group created without `clases=` starts with an empty mask, so an
