@@ -392,6 +392,8 @@ Several sets, one tool (welder, lathe, cine camera, contactor; `reference/exampl
   black. Use a thresholded grunge on parts that live in a hole.
 - **Never stop Painter while an `sp.py` call may still be running.** A call that outlived the shell timeout went to
   the background; killing Painter then cut the export (`ReadError`). Check the texture timestamps before trusting them.
+- **A flat face square to the key light returns the whole lamp at roughness 0.55.** Black rubber eyecups rendered
+  light grey with a correct black texture; matt rubber (0.95) fixed it. Sample the texel before blaming a mask.
 - **Measure a highlight before fixing it.** A bright strip on a lid looked blown; largest blob at L > 250 was 0 %.
 
 Three sets sharing class names (portable generator; `reference/example_recipe_three_sets_used_generator.py`):
