@@ -332,6 +332,15 @@ Retexturing also exposed two shipped high-poly defects, both a cutter with too g
 breaking through the outer wall (seen as black dots on the new skin) and a flattening cut that removed half a
 flange (seen as a patch of the wrong material class). Ray-cast the high poly where the low poly looks odd.
 
+## Low poly of a parametric shell
+
+A hard-hat shell regenerated from its own surface function (`reference/example_lowpoly_parametric_shell_hard_hat.py`)
+passed every gate at 10 rings x 64 meridians and still showed a dented crown in the grey close-up: a 3 mm crest with a
+4 mm step, defined along X, crossed the meridians diagonally. More loops do not fix a relief that runs across them:
+widen the step in the LOW POLY evaluation only (4 -> 14 mm, a parameter of the same function) and leave the sharp edge
+to the normal map; then 17 x 128. `costura_tiras` (cut strips every 120 mm) must be limited by piece or by face area,
+or it slices domes and sheets whose quads happen to be narrow.
+
 ## Skeleton
 
 Condensed from `Farol_Queroseno` (a 265 mm kerosene lantern: one cast body,

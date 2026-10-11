@@ -344,6 +344,21 @@ Enamelled sheet metal with a glass set (kerosene lantern; `reference/example_rec
   `grunge`, `escaneo`, then `mapa(zone, Multiply)`.
 - A two-set project gives a 6:1 map strip; stack it in two rows (3:2) for the sheet.
 
+Mass-coloured plastic that scratches instead of chipping (hard hat; `reference/example_recipe_used_hard_hat_with_visor.py`):
+
+- **If the render does not change AT ALL after a change that should show, the renderer is serving old textures.**
+  With `scene.render.use_persistent_data = True`, Cycles kept the first export on the GPU through three Painter
+  round trips; `image.reload()` updated Blender's pixels (measured: equal to disk) but not the render. Set it to
+  False before iterating textures.
+- **Measure the exported map inside the piece's mask before editing another layer** (mean, spread, share of
+  light pixels inside `MK_<class>`): one call said the defect was no longer in the texture.
+- Light dust thresholded over smooth black plastic (`Dirt`, or `Grunge Dusty Powder Soft` with a scan) reads as
+  paint spatter. On black: an unthresholded veil at low opacity. `Grunge Scratches Dirty` scanned low gives
+  blotches, not scratches; `Grunge Scratches Fine` gives scratches.
+- Mass-coloured polyethylene has no primer or metal underneath: wear is lighter, matter scratches, not chips.
+- **Look at the exported base colour as a sheet before accepting the UVs:** a seam on the symmetry plane had cut the
+  brand name into two islands; no gate saw it. A band with lettering is cut at the sides.
+
 A flat body with a free outline (guitar; `building-blender-props/reference/example_lowpoly_one_piece_body_guitar.py`):
 
 - **Unwrap it by hand, it is three formulas.** Top and back are planar projections (the back mirrored), side by
