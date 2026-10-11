@@ -333,6 +333,17 @@ Used painted sheet steel, two sets with their own classes (pallet truck; `refere
 - **Do not fuse welded sheet metal into a skin.** Plates crossing at a hard edge are what the real part is; fuse
   only what comes out of a mould. The grey close-up of the low poly decides.
 
+Enamelled sheet metal with a glass set (kerosene lantern; `reference/example_recipe_used_enamel_lantern_with_glass.py`):
+
+- **Inside a globe or a cage the `Dirt` generator fills everything.** Occlusion there is total: the burner dome
+  came out solid pale verdigris. For enclosed parts, corner dirt is a thresholded grunge, not `Dirt`.
+- **Glass is textured as one more set.** In Blender the base colour tints transmission
+  (`bake.material_final(..., transmision=1.0, ior=1.5)`): what Painter darkens smokes the glass, roughness fogs
+  it. Soot at 75 % with roughness 0.5 read as frosted glass; 55 % and 0.34 read as smoked.
+- Heat is a zone too: burnt enamel (matt, brownish) on the chamber and soot at the flue, both as
+  `grunge`, `escaneo`, then `mapa(zone, Multiply)`.
+- A two-set project gives a 6:1 map strip; stack it in two rows (3:2) for the sheet.
+
 A flat body with a free outline (guitar; `building-blender-props/reference/example_lowpoly_one_piece_body_guitar.py`):
 
 - **Unwrap it by hand, it is three formulas.** Top and back are planar projections (the back mirrored), side by
