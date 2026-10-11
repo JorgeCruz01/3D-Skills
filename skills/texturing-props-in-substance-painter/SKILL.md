@@ -178,6 +178,14 @@ new. A new object is not zero layers: base colour, the scan under the finish, an
 (`reference/example_recipe_factory_new_guitar.py`, 20 + 49 operations). `sp.py medir` will warn that roughness is
 almost uniform; on a new lacquer that is the brief.
 
+A repeated material relief is a design decision, not free detail. A drill's rubber overmould carried anti-slip
+dimples (`M.relieve`, 2.4 mm pitch) baked into the normal map, with dust layered into them; the client approved
+the prop except for that: "they break the look, those parts are generally smooth". Over a part seen whole in the
+hero shot the pattern reads as bubbles, not grip. Rubber overmould and triggers are smooth unless the reference
+photo of that exact part shows a texture. Removing it afterwards costs the whole loop: drop the relief from the
+high-poly material, re-bake `normal_hp`, rebuild the masks, reapply the recipe, re-render every sheet
+(`reference/example_recipe_used_power_tool.py`).
+
 ## Getting past "procedural"
 
 The first pass already beat the Blender materials and still read as a filter.

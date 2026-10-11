@@ -4,13 +4,13 @@
 
 Aspecto: taladro de obra USADO (Jorge, 2026-10-10: los props que siguen a la guitarra van usados). Carcasa de ABS
 verde azulado con el brillo comido donde se apoya y se agarra, aranazos claros a lo largo, polvo de obra en las
-ranuras y mugre oscura en la empunadura. Goma negra con polvo en los hoyuelos y la cresta pulida por la mano.
+ranuras y mugre oscura en la empunadura. Goma negra LISA (Jorge: sin hoyuelos), satinada por la mano donde se agarra.
 Portabrocas de acero pavonado con el moleteado gastado hasta el metal; broca de nitruro de titanio con el filo
 ya en acero. Bateria de grafito con la base rayada de dejarla en el suelo. Tornillos de oxido negro.
 
 Mascaras (Texturas/Bakes/Mascaras/): MK_ por material y pieza; ZN_Agarre, ZN_Gatillo, ZN_Suelo (base de la
 bateria), ZN_Morro (portabrocas y collar), ZN_Apoyo (trasera, costados y lomo de la cabeza: donde roza al dejarlo
-tumbado); CP_Relieve_Canto / _Hueco (hoyuelos de la goma, moleteado, grano del plastico); CP_Rayado_Largo (a lo
+tumbado); CP_Relieve_Canto / _Hueco (moleteado, grano del plastico); CP_Rayado_Largo (a lo
 largo del husillo) y CP_Manchas.
 """
 from sp_receta import Receta
@@ -75,15 +75,11 @@ def construir():
 
     K = r.grupo("Goma", clases=("Goma", "Gatillo"))
     r.capa("Goma negra", K, {"baseColor": "#151617", "roughness": 0.62, "metallic": 0})
-    f = r.capa("Goma: cresta pulida por la mano", K, {"baseColor": "#0D0D0E", "roughness": 0.34}, opac=0.7)
+    f = r.capa("Goma: satinada por la mano", K, {"baseColor": "#0F0F10", "roughness": 0.42}, opac=0.65)
     r.mapa(f, "ZN_Agarre")
     r.mapa(f, "ZN_Gatillo", fusion="LinearDodge")
-    r.mapa(f, "CP_Relieve_Canto", fusion="Multiply")
-    r.escaneo(f, 0.5, 0.4)
-    f = r.capa("Goma: polvo en los hoyuelos", K, {"baseColor": POLVO, "roughness": 0.95}, opac=0.6)
-    r.mapa(f, "CP_Relieve_Hueco")
-    r.grunge(f, "Grunge Dusty Powder Soft", 4, fusion="Multiply")
-    r.escaneo(f, 0.5, 0.4)
+    r.grunge(f, "Grunge Stains Heavy", 4, fusion="Multiply")
+    r.escaneo(f, 0.4, 0.4)
     f = r.capa("Goma: polvo en rincones", K, {"baseColor": POLVO, "roughness": 0.95}, opac=0.3)
     r.gen(f, "Dirt", {"dirt_level": 0.3, "dirt_contrast": 0.55, "grunge_amount": 0.8})
     f = r.capa("Goma: rozaduras", K, {"baseColor": "#3A3A3B", "roughness": 0.7}, opac=0.5)
