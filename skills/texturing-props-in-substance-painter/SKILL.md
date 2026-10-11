@@ -375,6 +375,18 @@ A NEW, photoreal product (gamepad; `reference/example_recipe_new_product_gamepad
 - **Never bake relief on a UV seam:** the groove was moved 0.9 mm off the plane where the shell is cut.
 - Black plastic at sRGB 41 rendered grey under a bright studio; 27 reads black.
 
+Three sets sharing class names (portable generator; `reference/example_recipe_three_sets_used_generator.py`):
+
+- **A paint group needs its OWN class mask.** A group created without `clases=` starts with an empty mask, so an
+  edge-wear generator in `Multiply` gives zero and the paint vanishes everywhere (tank and frame came out as bare
+  rust). Check Painter's curvature map first (`sp_mesh_map`): it was fine, the bake was not the cause.
+- **Same class names in several sets:** bake one set's classes, run `sp_mascaras.py`, rename its `MK_*` with the
+  set prefix (`MK_B_`, `MK_M_`, `MK_P_`), then the next set. Simpler than `por_objeto` when one high-poly piece
+  carries two materials.
+- **A blown highlight is a blob, not a fraction.** Measure the largest connected component at L > 250 (0.1 % of
+  the sheet), never on UV or map sheets; exclude the white divider of a split. Glossy enamel (roughness 0.3) under
+  a top light blew 0.74 % of a view; 0.5 plus matt wear, zero.
+
 A flat body with a free outline (guitar; `building-blender-props/reference/example_lowpoly_one_piece_body_guitar.py`):
 
 - **Unwrap it by hand, it is three formulas.** Top and back are planar projections (the back mirrored), side by
