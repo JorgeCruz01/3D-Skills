@@ -318,6 +318,20 @@ Measured: 11,341 quads, 44 poles, watertight, p95 0.10 mm from the fused shape; 
 still go to the maps. UV seams for such a skin are written by orientation: symmetry plane plus caps for the
 housing, dominant normal axis for a box.
 
+### Fuse the casting, build what is machined
+
+A flanged gate valve (`reference/example_lowpoly_hybrid_casting_valve.py`) showed the limit of the fused skin. Fusing
+every casting gave wavy flange rims: a machined edge rounded to 0.5 mm is not a sharp edge to QuadriFlow and its
+loops cross it; leaving the cut mesh un-remeshed so the edge stays sharp makes QuadriFlow answer `needs to be
+manifold`. So: fuse only the cast volume with large fillets and no visible machined edge (tube, hubs, chamber and
+belly; the handwheel), BUILD flanges, raised faces and flat-topped prisms exactly, and let them cross the skin in
+concave corners, which a normal map does resolve. Push the skin's ends 4 mm into the built part so the junction is
+a clean cut. Do NOT relax (smooth + re-snap) a skin that has a 2-4 mm step: each vertex jumps to one side of the
+edge and the step comes out torn; without relaxing it was clean and 0.20 mm from the fused shape at p95.
+Retexturing also exposed two shipped high-poly defects, both a cutter with too generous an interval: a cavity
+breaking through the outer wall (seen as black dots on the new skin) and a flattening cut that removed half a
+flange (seen as a patch of the wrong material class). Ray-cast the high poly where the low poly looks odd.
+
 ## Skeleton
 
 Condensed from `Farol_Queroseno` (a 265 mm kerosene lantern: one cast body,
