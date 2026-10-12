@@ -394,6 +394,8 @@ Several sets, one tool (welder, lathe, cine camera, contactor; `reference/exampl
   (it read as stone) where 0.06 gave specks.
 - **`tanda.cerrar(..., esperados)` takes high-poly OBJECT names,** not set names: a set name returned `cerrar: False`
   with nothing missing.
+- **Removing a painted label:** drop its ink class from the recipe (the class then takes the body material) and hide
+  the label objects in the scene; no rebake needed when the label is flat ink.
 - **Never stop Painter while an `sp.py` call may still be running.** A call that outlived the shell timeout went to
   the background; killing Painter then cut the export (`ReadError`). Check the texture timestamps before trusting them.
 - **A flat face square to the key light returns the whole lamp at roughness 0.55.** Black rubber eyecups rendered

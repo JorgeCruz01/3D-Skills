@@ -55,7 +55,7 @@ def _dron(r, p):
     r.capa(p + "Gris de fondo", Z, {"baseColor": "#2A2B2D", "roughness": 0.55, "metallic": 0})
 
     _plastico(r, p, "Carcasa", c("Carcasa", "Tinta_Negra", "Tinta_Verde"), "#8E9394", "#5E6264", 0.52,
-              (("Tinta_Negra", "#1A1B1C"), ("Tinta_Verde", "#1F8A4A")))
+              (("Tinta_Verde", "#1F8A4A"),))        # sin el rotulo lateral INSPECCION (Jorge, 2026-10-11): su clase se pinta como carcasa
     _plastico(r, p, "Grafito", c("Grafito", "Tinta_Blanca"), "#1D1F22", "#4A4D52", 0.55, (("Tinta_Blanca", "#C9C9C6"),))
     _plastico(r, p, "Punta naranja", c("Naranja"), "#D8601A", "#3A3C40", 0.5)
     _plastico(r, p, "Cupula", c("Blanco"), "#B9B7AC", "#A39A78", 0.5)
