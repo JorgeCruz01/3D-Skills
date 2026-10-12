@@ -390,6 +390,10 @@ Several sets, one tool (welder, lathe, cine camera, contactor; `reference/exampl
   regular lattice of dots; `Grunge Dirt` thresholded low gives irregular swarf.
 - **`Dirt` saturates inside any recess, not only inside a globe:** terminal screws sitting in their wells came out
   black. Use a thresholded grunge on parts that live in a hole.
+- **On light plastic a scuff reads dark, not light;** and a dirt layer thresholded at 0.3 covered a whole drone shell
+  (it read as stone) where 0.06 gave specks.
+- **`tanda.cerrar(..., esperados)` takes high-poly OBJECT names,** not set names: a set name returned `cerrar: False`
+  with nothing missing.
 - **Never stop Painter while an `sp.py` call may still be running.** A call that outlived the shell timeout went to
   the background; killing Painter then cut the export (`ReadError`). Check the texture timestamps before trusting them.
 - **A flat face square to the key light returns the whole lamp at roughness 0.55.** Black rubber eyecups rendered
