@@ -402,6 +402,18 @@ Several sets, one tool (welder, lathe, cine camera, contactor; `reference/exampl
   light grey with a correct black texture; matt rubber (0.95) fixed it. Sample the texel before blaming a mask.
 - **Measure a highlight before fixing it.** A bright strip on a lid looked blown; largest blob at L > 250 was 0 %.
 
+A printed label on a rebuilt prop (fire extinguisher; `reference/example_prepare_all_and_bake_label_extinguisher.py`):
+
+- **Bake printed artwork to the low poly's UV space in Blender, then use it as a fill.** The label art (one PNG,
+  cylindrical mapping built with nodes: `atan2(x, -y)` and height) is an emission material on the high-poly label
+  band; `substance._Horno` bakes it onto a copy of the low poly holding only that set. The bake writes linear
+  values: convert to sRGB before `sp.py importar`. In the recipe: `{"resource": "ETIQUETA", "usage": "texture"}`
+  with `proy={"mode": "UV"}`, inside the label's class group, so wear and dirt layer over it.
+- **One call from builder to masks** (`preparar_sp.todo()`): high poly, gates, low poly, UV, export, per-set masks
+  and the label, with the results written to a JSON because the call outlives the MCP timeout. A mesh change after
+  the first texture pass then costs one call plus the Painter loop, not ten.
+- **A glint on a cut metal edge is not a texture defect.** Sample the texel (zinc, metallic 1) before chasing it.
+
 Three sets sharing class names (portable generator; `reference/example_recipe_three_sets_used_generator.py`):
 
 - **A paint group needs its OWN class mask.** A group created without `clases=` starts with an empty mask, so an

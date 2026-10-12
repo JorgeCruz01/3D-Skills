@@ -207,6 +207,8 @@ These have no visual equivalent. If you do not run them, you do not know.
 
 | Excuse | Reality |
 |---|---|
+| "Deviation max is 16 mm, I will note it in the README" | Locate it first. 204 low-poly faces sat 16 mm from the high poly: all of them INSIDE a valve body built from crossed solids (inner caps kept so the mesh stays watertight). Listing the far faces with their bounding box took one call and turned an alarming figure into a declared fact. |
+| "The silhouette differs by 42,441,500 %, the low poly must be badly off" | A figure that size is never geometry: `hp_coverage_px` was 0 because an earlier low-poly-only render had left `hide_render` on every high-poly object. Read the coverage of BOTH collections before reading the percentage. |
 | "The eyecups render white, so the class bake must have given them the white class" | A light patch in a render is colour OR reflection, and only a texel sample tells which. Three Painter round trips went into a zone mask forcing black; the texture had been black all along (base 0.07, roughness 0.55, metallic 0). They were flat faces looking straight at the key light: specular. Ray-cast to the face, read base colour, roughness, metallic and normal at its UV, THEN pick the fix (here: roughness 0.95) |
 | "I already looked at several renders and it reads fine" | Your eye calibrates to the model. At hour six you see what you expect to see. |
 | "That check requires setting something up instead of just looking" | Exactly. That is why it finds what looking does not. |

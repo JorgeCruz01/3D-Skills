@@ -332,6 +332,15 @@ Retexturing also exposed two shipped high-poly defects, both a cutter with too g
 breaking through the outer wall (seen as black dots on the new skin) and a flattening cut that removed half a
 flange (seen as a patch of the wrong material class). Ray-cast the high poly where the low poly looks odd.
 
+## Stamped sheet-metal channels
+
+Squeeze levers and carry handles are a U channel of 1.6 mm sheet following a curve
+(`reference/example_builder_sheet_channel_levers_extinguisher.py`, `canal`): loft sections whose outer and inner
+outlines are PAIRED point for point (rounded corners included), so the two end caps are strips of quads and the same
+function gives the high poly and the low poly. Width and flange vary along the path; the tip closes in an arc.
+Do not run the flange to zero at the tip: paired points collapse (faces of 281:1, and triangles in the low poly
+after welding). Keep a minimum lip of sheet thickness + 0.4 mm.
+
 ## Low poly of a parametric shell
 
 A hard-hat shell regenerated from its own surface function (`reference/example_lowpoly_parametric_shell_hard_hat.py`)
