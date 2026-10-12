@@ -82,7 +82,7 @@ def u(p):
     return p.replace("\\", "/")
 
 
-def proyecto(prop, ts, extrusion=0.007):
+def proyecto(prop, ts, extrusion=0.007, normales_malla=False, fondo=None):
     """Proyecto nuevo desde la low poly (OpenGL, 4096), horneado desde el high poly e importacion de
     todas las mascaras. `extrusion` es relativa a la diagonal de la escena (0.007 de 0.36 m = 2.5 mm)."""
     R = rutas(prop)
@@ -93,7 +93,15 @@ def proyecto(prop, ts, extrusion=0.007):
                                                     "close_current": True, "discard_changes": True}},
              {"tool": "sp_project_save", "args": {"mode": "save_as", "path": u(R["spp"])}},
              {"tool": "sp_bake", "args": {"size": 4096, "high_meshes": [u(R["hp"])],
-                                          "common": {"SubSampling": 1, "MaxHeight": extrusion, "MaxDepth": extrusion},
+                                          # SmoothNormals = «Average normals»: Painter promedia las normales de la jaula e
+                                          # ignora las de la malla. `--normales-malla` lo apaga y manda la low poly (que va
+                                          # con normales ponderadas por cara). En el microscopio NO cambio el resultado: la
+                                          # causa de las ranuras rotas era `fondo`.
+                                          # `fondo` (MaxDepth): hasta donde sigue el rayo POR DENTRO de la low poly. Si es
+                                          # menor que el fondo de una ranura, el rayo no llega al suelo, el texel queda sin
+                                          # dato y Painter lo rellena desde las paredes: ranuras partidas en dos mitades.
+                                          "common": {"SubSampling": 1, "MaxHeight": extrusion, "MaxDepth": fondo or extrusion,
+                                                     "SmoothNormals": not normales_malla},
                                           "baker_params": {"Position": {"NormalizationScale": "Full Scene"}},
                                           "timeout_s": 1500}},
              {"tool": "sp_set_display", "args": {"environment": "Studio Tomoco"}, "continue_on_error": True}]
@@ -242,7 +250,8 @@ if __name__ == "__main__":
     if cmd == "estado":
         llamar([{"tool": "sp_status", "args": {}}])
     elif cmd == "proyecto":
-        proyecto(a[1], a[2], float(a[a.index("--extrusion") + 1]) if "--extrusion" in a else 0.007)
+        proyecto(a[1], a[2], float(a[a.index("--extrusion") + 1]) if "--extrusion" in a else 0.007, "--normales-malla" in a,
+                 float(a[a.index("--fondo") + 1]) if "--fondo" in a else None)
     elif cmd == "normal":
         normal(a[1], a[2])
     elif cmd == "importar":
