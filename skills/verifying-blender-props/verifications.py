@@ -1591,7 +1591,7 @@ def hp_outside_cage(hp_names, lp_name, cage_mm, sample=200000):
         o = bpy.data.objects[n]
         vs = o.data.vertices
         step = max(1, len(vs) // max(1, sample // max(1, len(hp_names))))
-        m, cnt = 0.0, 0
+        m, cnt, at = 0.0, 0, None
         for i in range(0, len(vs), step):
             p = o.matrix_world @ vs[i].co
             loc, nor, _, d = tree.find_nearest(p)
@@ -1600,8 +1600,81 @@ def hp_outside_cage(hp_names, lp_name, cage_mm, sample=200000):
             evaluated += 1
             if d * 1000 > cage_mm and not _inside_any_shell(tree, p):
                 cnt += 1
-                m = max(m, d * 1000)
+                if d * 1000 > m:
+                    m, at = d * 1000, [round(c * 1000) for c in p]
         if cnt:
-            worst[n] = {"max_mm": round(m, 2), "samples_over": cnt}
+            worst[n] = {"max_mm": round(m, 2), "samples_over": cnt, "worst_at_mm": at}
     return {"ok": evaluated > 0 and not worst, "evaluated": evaluated, "cage_mm": cage_mm, "over": worst}
+
+
+def uv_quad_affinity(name, texture_res=4096, threshold_px=4.0):
+    """Quads whose UV mapping is not affine: the fourth corner sits away from where the other three predict.
+
+    Inside such a quad the texel -> surface mapping depends on which diagonal splits it. The baker (Painter reading
+    the FBX) and the renderer (Blender tessellating the same quad) are free to pick different diagonals, and then
+    baked high-frequency detail lands bent. Nothing else measures this: overlap, coverage, density, stretch-free
+    islands and the silhouette can all be green.
+
+    Real case: a lamp house with straight cooling fins baked into the normal map. In the render the fins came out
+    wavy. The front face was TWO large quads with a 78-110 px error at 4096; the lid, 20 quads up to 128 px. The
+    unwrap had flattened a rounded box as one stretched island. Seams between the box faces fixed it.
+
+    Returns the error in pixels (median, p95, max) and how many quads exceed `threshold_px`. Only matters where the
+    normal map carries fine straight detail; a large value on a plain face is harmless.
+    """
+    import numpy as np
+    me = bpy.data.objects[name].data
+    uv = me.uv_layers.active.data
+    errs = []
+    for f in me.polygons:
+        if len(f.vertices) != 4:
+            continue
+        P = np.array([me.vertices[i].co for i in f.vertices], float)
+        U = np.array([uv[l].uv for l in f.loop_indices], float) * texture_res
+        A = np.stack([P[1] - P[0], P[3] - P[0]], 1)
+        coef, *_ = np.linalg.lstsq(A, P[2] - P[0], rcond=None)
+        pred = U[0] + coef[0] * (U[1] - U[0]) + coef[1] * (U[3] - U[0])
+        errs.append(float(np.linalg.norm(pred - U[2])))
+    if not errs:
+        return {"ok": False, "evaluated": 0}
+    e = np.array(errs)
+    over = int((e > threshold_px).sum())
+    return {"ok": over == 0, "evaluated": len(errs), "median_px": round(float(np.median(e)), 2),
+            "p95_px": round(float(np.percentile(e, 95)), 2), "max_px": round(float(e.max()), 2), "over": over,
+            "threshold_px": threshold_px}
+
+
+def lp_normal_skew(name, min_area_mm2=400.0, threshold_deg=5.0):
+    """Large flat low-poly faces whose shading normals lean away from the face normal.
+
+    The baker casts its rays along the interpolated vertex normals. On a rounded box, smooth shading averages the
+    normals of a big flat face with those of its bevel, so the rays cross that face slanted, by a different amount in
+    each triangle. Any narrow recessed detail of the high poly (vent slots, grilles, knurling) is then hit on its
+    walls instead of its floor: occlusion and normals come out in triangular patches.
+
+    Real case: a lamp house with eleven straight vent slots. In the render the slots read as broken dashes. The
+    painted layers were blamed twice (dust, then edge wear) and re-exported twice; sampling the ORM along ONE slot
+    said "uniform" and hid it. Resampling the whole face into an image showed blocky triangles in the baked occlusion
+    and normal maps. Face-weighted normals on the low poly (Weighted Normal modifier, keep sharp) before export
+    fixed it.
+
+    Returns the worst angle in degrees and the faces over `threshold_deg`.
+    """
+    import math
+    me = bpy.data.objects[name].data
+    try:
+        me.calc_normals_split()
+    except Exception:
+        pass
+    normals = [l.normal for l in me.loops] if not hasattr(me, "corner_normals") else [c.vector for c in me.corner_normals]
+    worst, over, evaluated = 0.0, 0, 0
+    for f in me.polygons:
+        if f.area * 1e6 < min_area_mm2:
+            continue
+        evaluated += 1
+        a = max(math.degrees(f.normal.angle(normals[l], 0.0)) for l in f.loop_indices)
+        worst = max(worst, a)
+        over += a > threshold_deg
+    return {"ok": evaluated > 0 and over == 0, "evaluated": evaluated, "max_deg": round(worst, 2), "over": over,
+            "threshold_deg": threshold_deg}
 
