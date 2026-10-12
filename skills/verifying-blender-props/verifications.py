@@ -1547,3 +1547,61 @@ def inverted_solids(collection, min_cm3=0.05):
             inverted[o.name] = round(v, 2)
     return {"ok": not inverted, "inverted": inverted, "checked": checked}
 
+
+def _inside_any_shell(tree, p):
+    """True if `p` is inside at least one closed shell of a mesh made of several shells that may overlap
+    (a low poly of crossed solids). Parity fails there: inside two shells reads as outside. Counted instead as
+    exits minus entries along a ray, on three directions, unanimous. The sign of the nearest face is no use either:
+    an interior cap of a crossed solid faces the point and calls a buried vertex 'outside' (measured: 444 false
+    positives on an engine block, 20 mm 'outside')."""
+    from mathutils import Vector
+    votes = 0
+    for d in (Vector((0.577, 0.577, 0.577)), Vector((-0.31, 0.82, 0.48)), Vector((0.71, -0.2, -0.67))):
+        depth, o, n = 0, p.copy(), 0
+        while n < 96:
+            loc, nor, _, _ = tree.ray_cast(o, d)
+            if loc is None:
+                break
+            depth += 1 if nor.dot(d) > 0 else -1
+            o = loc + d * 1e-5
+            n += 1
+        votes += depth > 0
+    return votes == 3
+
+
+def hp_outside_cage(hp_names, lp_name, cage_mm, sample=200000):
+    """High-poly geometry standing PROUD of the low poly by more than the bake cage.
+
+    A baker shoots rays from the low-poly surface pushed out by the cage distance. Anything the high poly adds
+    beyond that distance (a nut, a hinge barrel, a louvre, a rib) starts the ray INSIDE the detail: the normal comes
+    out wrong and the occlusion comes out black. Fins and slots cut INTO the surface never trip this; added details do.
+
+    Real case: an 8 kVA generator. Rocker-cover nuts 8 mm tall and a 4.8 mm roof hinge existed only in the high
+    poly. In the renders the nuts read as two dark holes ("eyes") and the hinge as a black line. Sampling the ORM
+    map at one nut gave occlusion 0.004 against 0.66 beside it. Silhouette, deviation (measured low poly -> high
+    poly, so blind to this) and every UV gate were green. Keeping those details within the cage fixed it.
+
+    Returns the worst outward distance per high-poly object; `ok` is False when any exceeds `cage_mm`.
+    """
+    from mathutils.bvhtree import BVHTree
+    dg = bpy.context.evaluated_depsgraph_get()
+    tree = BVHTree.FromObject(bpy.data.objects[lp_name], dg)
+    worst, evaluated = {}, 0
+    for n in hp_names:
+        o = bpy.data.objects[n]
+        vs = o.data.vertices
+        step = max(1, len(vs) // max(1, sample // max(1, len(hp_names))))
+        m, cnt = 0.0, 0
+        for i in range(0, len(vs), step):
+            p = o.matrix_world @ vs[i].co
+            loc, nor, _, d = tree.find_nearest(p)
+            if loc is None:
+                continue
+            evaluated += 1
+            if d * 1000 > cage_mm and not _inside_any_shell(tree, p):
+                cnt += 1
+                m = max(m, d * 1000)
+        if cnt:
+            worst[n] = {"max_mm": round(m, 2), "samples_over": cnt}
+    return {"ok": evaluated > 0 and not worst, "evaluated": evaluated, "cage_mm": cage_mm, "over": worst}
+
