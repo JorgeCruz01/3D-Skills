@@ -41,6 +41,7 @@ Use `verifications.py` (next to this file). Every function returns a dict.
 | High poly | `manifold(part)` | `boundary == 0`, `nonmanifold == 0`, `scale == [1,1,1]` |
 | High poly | `dimensions(part, expected_mm)` | within declared tolerance, **measured against a reference distinct from the one that fixed the scale** (see "No circular verification" below) |
 | High poly | `degenerate_faces(part)` | nothing above 100:1 aspect ratio |
+| High poly, any part that will be glossy (polished stone, lacquer, glass, chrome) | one render of the HIGH poly with a glossy material (roughness ≤ 0.2) under the hero lights, before any bake | reflections run clean across the surface. Matte clay hides waviness of tenths of a millimetre; a polished material shows every one. Real case: a war axe's stone blade came out "wrinkled" on its horns after texturing. Two different bakes (Painter, Blender) gave the same result, so it was in the high poly: ripples in an inflated thickness field. The clay still had looked perfect |
 | Shape-only module | render isolated from 3+ views + an explicit feature checklist (see "The shape gate" below) | every listed feature marked present with the image it is visible in, **plus** a final gestalt question against the reference that overrides all of the above |
 | Machined detail | `axis_clearance(...)` | **positive**: a hole must still be a hole after modifiers |
 | Assembly | `axis_clearance` / `profile_clearance` | positive between every pair of parts that touch |
@@ -207,6 +208,7 @@ These have no visual equivalent. If you do not run them, you do not know.
 
 | Excuse | Reality |
 |---|---|
+| "I changed the function and the result is identical, so the cause must be elsewhere" | Read the code that is LOADED (`inspect.getsource(module.fn)`) before forming a second theory. A splice had duplicated half a builder file; the older copy of the function sat further down and was the one that ran. Two wrong causes were announced before anyone looked. |
 | "Deviation max is 16 mm, I will note it in the README" | Locate it first. 204 low-poly faces sat 16 mm from the high poly: all of them INSIDE a valve body built from crossed solids (inner caps kept so the mesh stays watertight). Listing the far faces with their bounding box took one call and turned an alarming figure into a declared fact. |
 | "The silhouette differs by 42,441,500 %, the low poly must be badly off" | A figure that size is never geometry: `hp_coverage_px` was 0 because an earlier low-poly-only render had left `hide_render` on every high-poly object. Read the coverage of BOTH collections before reading the percentage. |
 | "The eyecups render white, so the class bake must have given them the white class" | A light patch in a render is colour OR reflection, and only a texel sample tells which. Three Painter round trips went into a zone mask forcing black; the texture had been black all along (base 0.07, roughness 0.55, metallic 0). They were flat faces looking straight at the key light: specular. Ray-cast to the face, read base colour, roughness, metallic and normal at its UV, THEN pick the fix (here: roughness 0.95) |

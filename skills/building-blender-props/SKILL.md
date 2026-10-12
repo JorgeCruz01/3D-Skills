@@ -332,6 +332,21 @@ Retexturing also exposed two shipped high-poly defects, both a cutter with too g
 breaking through the outer wall (seen as black dots on the new skin) and a flattening cut that removed half a
 flange (seen as a patch of the wrong material class). Ray-cast the high poly where the low poly looks odd.
 
+## Sharpened blades in quads
+
+A blade, spike or any slab that tapers to an edge (measured on a war axe, 9,624 triangles):
+
+- High poly: `inflado.inflar` over the traced outline with the long bevel only along the free edge. Smooth the
+  thickness (Y only) to remove ripples, but exclude the wall faces of the spine: flattening them gave 123:1 faces.
+- Low poly: `F.prisma(..., tramos=2)` on the same outline — the middle loop is what `Q.ajustar` pulls onto the
+  high-poly edge. Without it the flat rim sat 2.7 mm inside. Bites and nicks go INTO the outline, or the bake finds
+  no high poly behind them.
+- UV: write the seam yourself on that middle loop (face attribute `cosida`, edge attribute `costura`, read by
+  `uv.costuras`) and unwrap with `refinado=("aislar", "aislar", "aislar")`. Angle-based refinement shredded the
+  islands at the cusps: coverage 30 % with 2,007 added seams, against 66 % isolating only the 27 overlapping pairs.
+- A 3 mm relief under a smooth low-poly cylinder already fails the edge-on silhouette (1.7 %): let the low-poly
+  rings follow the relief there.
+
 ## Stamped sheet-metal channels
 
 Squeeze levers and carry handles are a U channel of 1.6 mm sheet following a curve
