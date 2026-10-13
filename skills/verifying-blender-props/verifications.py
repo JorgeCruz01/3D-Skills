@@ -1678,3 +1678,44 @@ def lp_normal_skew(name, min_area_mm2=400.0, threshold_deg=5.0):
     return {"ok": evaluated > 0 and over == 0, "evaluated": evaluated, "max_deg": round(worst, 2), "over": over,
             "threshold_deg": threshold_deg}
 
+
+def uv_anisotropy(name, threshold=2.5, max_area_pct=1.0):
+    """Faces whose UV is stretched in one direction: the ratio between the highest and the lowest texel density
+    measured ALONG THE EDGES of each face. 1.0 = not stretched.
+
+    Density and coverage gates measure AREA. A face can own exactly the right number of texels and still be 40 times
+    denser one way than the other; a tileable grain (leather, fabric, brushed metal) then renders as waves or streaks.
+
+    Real case: the edge strip of a saddle's leather shell. Faces of 62 x 12 mm occupied 28 x 208 px: 0.44 px/mm along,
+    17 px/mm across, correct area. `uv_density` passed (3 px/mm), `uv_overlap` passed, the bake was 0.19 mm from the
+    high poly with aligned normals, and the high poly was clean in clay. The leather grain came out as wavy bands
+    around the gullet; a check render found it. Three wrong causes were ruled out by measuring before this one. The
+    strip was a closed ring bounded by the seams of the two faces of the sheet, with no cut across it, so the unwrap
+    squashed it. Fix: cut the ring across and unwrap those faces again (one island per stretched face is safe; pieces
+    of several faces folded over the edge overlapped themselves).
+
+    Returns the count of faces over `threshold`, the share of the surface area they cover and the worst ratio.
+    `ok` when that share is under `max_area_pct`. A handful of tiny faces on a pivot or a cap is harmless; a band is not.
+    """
+    import numpy as np
+    me = bpy.data.objects[name].data
+    uv = me.uv_layers.active.data
+    ratios, areas = [], []
+    for f in me.polygons:
+        li = list(f.loop_indices)
+        r = []
+        for k in range(len(li)):
+            a, b = li[k], li[(k + 1) % len(li)]
+            d3 = (me.vertices[me.loops[a].vertex_index].co - me.vertices[me.loops[b].vertex_index].co).length
+            if d3 > 1e-7:
+                r.append((uv[a].uv - uv[b].uv).length / d3)
+        ratios.append(max(r) / max(min(r), 1e-12) if r else 1.0)
+        areas.append(f.area)
+    if not ratios:
+        return {"ok": False, "evaluated": 0}
+    r, a = np.array(ratios), np.array(areas)
+    bad = r > threshold
+    pct = float(a[bad].sum() / max(a.sum(), 1e-12) * 100)
+    worst = [{"ratio": round(float(r[i]), 1), "at_mm": [round(c * 1000) for c in me.polygons[int(i)].center]} for i in np.argsort(-r)[:5]]
+    return {"ok": pct < max_area_pct, "evaluated": len(r), "faces_over": int(bad.sum()), "area_pct": round(pct, 2), "max_ratio": round(float(r.max()), 1),
+            "threshold": threshold, "worst": worst}
