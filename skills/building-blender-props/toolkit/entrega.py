@@ -92,6 +92,7 @@ def still(nombre, fichero, direccion, res=(3840, 2160), samples=160, margen=0.02
     sc.render.filepath = ruta
     import time
     t = time.time()
+    __import__("solo_gpu").asegurar(horneado=False)      # prohibido renderizar u hornear con la CPU
     bpy.ops.render.render(write_still=True)
     dt = round(time.time() - t, 1)
     if luz:

@@ -1,16 +1,9 @@
-"""Estudio comun: rig de luz y camaras que se escala al tamano del prop.
+"""Estudio comun del lote: rig de luz y camaras que se escala al tamano del prop.
 
-El rig de la plantilla esta dimensionado para un objeto de `REF_ALTO` metros
-(0.51 en la plantilla con la que se hicieron los dieciseis props).
-`escalar_luces` lo reescala al prop: las posiciones y el tamano de las luces
-crecen linealmente y la potencia con el cuadrado, de modo que la exposicion y la
-dureza de la sombra se mantienen iguales de un prop a otro.
-
-Contrato con la plantilla (`prop.plantilla()`): luces de area con los nombres de
-`LUCES`, camaras con los de `CAMARAS`, un fondo `Backdrop_360` y las colecciones
-`Model Collection` y `LP Collection`. Si la plantilla usa otros nombres o otro
-tamano de referencia, reasignar `LUCES`, `CAMARAS`, `REF_ALTO` y `GANANCIA`
-despues de importar el modulo.
+El rig viene de Extintor.blend, dimensionado para un objeto de 0.51 m de alto.
+`encuadrar` lo reescala al prop: las posiciones y el tamano de las luces crecen
+linealmente y la potencia con el cuadrado, de modo que la exposicion y la dureza
+de la sombra se mantienen iguales en los 18 props.
 """
 import bpy
 from mathutils import Vector
@@ -72,8 +65,31 @@ def escalar_luces(coleccion):
         o = bpy.data.objects[n]
         o.location = centro_xy + Vector(o["base_loc"]) * s
         o.data.size = o["base_size"] * s
-        o.data.energy = o["base_energy"] * s * s * GANANCIA
+        o.data.energy = o["base_energy"] * s * s * GANANCIA * bpy.context.scene.get("luz_" + n, 1.0)
     return {"ok": True, "escala": round(s, 4), "dim_m": [round(v, 4) for v in dim]}
+
+
+def aspecto(look="AgX - Medium High Contrast", exp=-1.0, mundo=0.3, fondo=0.31, luces=None):
+    """Aspecto del render de un prop, guardado en la escena (lo respeta `escalar_luces`).
+
+    El rig da cuatro luces iguales y un mundo a 1.0: sobre un prop oscuro (cuero, laca, plastico negro) el albedo
+    0.12 sale mas claro que el fondo y el material se lava. Medido en la silla vaquera: cuero #604632 en el mapa,
+    canela (200, 130, 85) en la lamina. `exp` baja la exposicion, `fondo` sube el albedo del ciclorama lo mismo
+    para que su gris no cambie, `mundo` quita relleno y `luces` = {nombre: factor} da clave y relleno distintos."""
+    sc = bpy.context.scene
+    sc.view_settings.look = look
+    sc.view_settings.exposure = exp
+    for n in sc.world.node_tree.nodes:
+        if n.type == "BACKGROUND":
+            n.inputs["Strength"].default_value = mundo
+    m = bpy.data.materials.get("M_Fondo")
+    if m and fondo:
+        for n in m.node_tree.nodes:
+            if n.type == "BSDF_PRINCIPLED":
+                n.inputs["Base Color"].default_value = (fondo, fondo, fondo * 1.03, 1)
+    for n in LUCES:
+        sc["luz_" + n] = float((luces or {}).get(n, 1.0))
+    return {"look": look, "exp": exp, "mundo": mundo, "fondo": fondo, "luces": {n: sc["luz_" + n] for n in LUCES}}
 
 
 def encuadrar(camara, coleccion, margen=0.12, res=None):
@@ -157,6 +173,7 @@ def vistas_previas(coleccion, carpeta, vistas=("tres_cuartos", "perfil", "frente
             r = encuadrar("_prev", coleccion, 0.06, res)
             ruta = os.path.join(carpeta, "%s_%s.png" % (prefijo, v))
             sc.render.filepath = ruta
+            __import__("solo_gpu").asegurar(horneado=False)      # prohibido renderizar u hornear con la CPU
             bpy.ops.render.render(write_still=True)
             salidas.append({"vista": v, "ruta": ruta, "ok": r["ok"]})
     finally:

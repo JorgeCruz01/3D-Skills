@@ -115,6 +115,7 @@ class _Horno:
         bk.cage_extrusion, bk.max_ray_distance, bk.margin, bk.use_clear = extrusion, 0.0, margen, True
         if tipo == "NORMAL":
             bk.normal_space, bk.normal_r, bk.normal_g, bk.normal_b = "TANGENT", "POS_X", "POS_Y", "POS_Z"
+        __import__("solo_gpu").asegurar(horneado=True)      # prohibido renderizar u hornear con la CPU
         return list(bpy.ops.object.bake(type=tipo))
 
     def guardar(self, ruta):

@@ -75,6 +75,17 @@ Limits of driving one Blender over MCP (120 s background, ~5 min connection,
 open-then-operate, one instance): `reference/mcp-session-limits.md`. Read it
 before the first long call.
 
+## Machine rules
+
+- **Never render or bake on the CPU.** `solo_gpu.asegurar()` runs before every `render.render` and `object.bake` in the
+  toolkit: Cycles on GPU with OptiX, the CPU device switched off in the preferences (left on beside the GPUs it gives
+  hybrid rendering), and it RAISES when no GPU is left instead of falling back. Call it in any new script that renders
+  or bakes.
+- **One GPU job at a time.** Do not run a Painter cycle while Blender renders, nor two render batches in parallel: the
+  owner works on the machine meanwhile. Measured: 4K stills took 128 s with Painter open against 25 s alone, and the
+  card sat at 88 %. `sp_ciclo.py` refuses to open Painter when the card is busy. Use the wait for work that needs no
+  GPU (recipes, docs, measuring maps).
+
 ## Phase order
 
 Binding. Touching a phase invalidates everything after it.

@@ -86,6 +86,7 @@ def mascara(c, ruta=None, ocultar=("Backdrop_360",), samples=4, color=False):
         sc.cycles.samples = samples
         sc.render.image_settings.file_format, sc.render.image_settings.color_mode = "PNG", "RGBA"
         sc.render.filepath = ruta
+        __import__("solo_gpu").asegurar(horneado=False)      # prohibido renderizar u hornear con la CPU
         bpy.ops.render.render(write_still=True)
     finally:
         for o, v in ocultos:

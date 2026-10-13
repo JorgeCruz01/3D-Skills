@@ -695,6 +695,7 @@ def lamina(nombres, ruta, desde=(-1.0, -0.6, 0.45), ancho=2000, grosor=0.00035, 
     sh.light, sh.color_type, sh.show_cavity = "STUDIO", "OBJECT", False
     esc.render.film_transparent = False
     esc.render.filepath = ruta
+    __import__("solo_gpu").asegurar(horneado=False)      # prohibido renderizar u hornear con la CPU
     bpy.ops.render.render(write_still=True)
     esc.camera, esc.render.engine = g["cam"], g["eng"]
     esc.render.resolution_x, esc.render.resolution_y, esc.render.resolution_percentage = g["x"], g["y"], g["p"]

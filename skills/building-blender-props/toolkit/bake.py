@@ -210,6 +210,7 @@ def hornear(hp, lp, sets, destino, res=4096, extrusion=0.004, max_ray=0.0, marge
         deshacer = [antes(m) for m in mats_hp.values()] if antes else []
         sc.cycles.samples = n_samples
         try:
+            __import__("solo_gpu").asegurar(horneado=True)      # prohibido renderizar u hornear con la CPU
             bpy.ops.object.bake(type=tipo, **kw)
         finally:
             for d in deshacer:

@@ -98,6 +98,7 @@ def wireframe(objetos, camara, salida, res=(2560, 2560), samples=64, grosor=0.00
         sc.render.resolution_x, sc.render.resolution_y = res
         sc.cycles.samples = samples
         sc.render.filepath = salida
+        __import__("solo_gpu").asegurar(horneado=False)      # prohibido renderizar u hornear con la CPU
         bpy.ops.render.render(write_still=True)
     finally:
         for c in temporales:
@@ -141,6 +142,7 @@ def par_split(objetos_lp, camara, carpeta, res=(3840, 2160), samples=160, grosor
         for n in (set() if render_lp else set(objetos_lp)) | set(ocultar_en_render):
             bpy.data.objects[n].hide_render = True
         sc.render.filepath = r_render
+        __import__("solo_gpu").asegurar(horneado=False)      # prohibido renderizar u hornear con la CPU
         bpy.ops.render.render(write_still=True)
     finally:
         sc.camera, sc.render.resolution_x, sc.render.resolution_y, sc.cycles.samples, sc.render.filepath = estado[:5]
