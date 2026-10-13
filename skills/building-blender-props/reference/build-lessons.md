@@ -185,6 +185,40 @@ with "→ verifying".
   gives 236:1 fans. Blend the rows to an even spread as the section height
   drops, and let the thickness fall with the height.
 
+## Moulded faces as height fields
+
+Six bench and handheld instruments (inverter, breadboard, power supply, oscilloscope, multimeter) were built this
+way. Examples: `example_builder_height_field_front_oscilloscope.py`, `example_builder_two_half_shells_multimeter.py`,
+`example_flatten_face_before_unwrap_multimeter.py`.
+
+- **One function `alto(x, z)` gives both meshes.** The moulded face is a closed shell between two grids
+  (`_lamina3`): the high poly samples the function on a 0.4–0.5 mm grid, the low poly only on the lines where the
+  shape changes. Recesses, windows, pockets for keys and knobs are terms of the function; rounded corners come from
+  mapping a square grid onto the outline (`_esquinas`). All quads by construction, no booleans.
+- **Only recesses of 1.5 mm or more get low-poly lines.** Lines for a 0.6 mm label recess left strips half a
+  millimetre wide along a 326 mm front: 32 faces over 100:1, worst 287:1. Baked instead: worst 96:1.
+- **Unwrap the visible face flattened.** With recess walls in it the unwrap folded, the refinement cut the face into
+  islands and its print landed at 2.1 px/mm instead of 7.5. Move the face vertices onto a plane, unwrap, move them
+  back: one island, and its UV is the exact planar projection the printed art needs. Flatten only what is further
+  from the outline than the edge rounding; a rounded rim flattened with it is compressed to nothing.
+- **The rim of a wide front is one long island and sets the atlas scale.** Oscilloscope: a 956 mm rim gave
+  5.09 px/mm and 21.4 % coverage. One cut at 45° in each corner
+  (`L.costura_por_orientacion((1, 0, 0), 0.7, donde=<rim only>)`): 10.13 px/mm and 85.0 %. Same on an inverter side
+  strip: 2.45 → 3.05 px/mm.
+- **A set under the 40 % floor takes neighbouring parts, not a lower density.** Power supply: front alone 29 %; with
+  the rear panel and what bolts to it, 51.7 %.
+- **A part that covers another needs two depths.** Multimeter: the instrument face (high poly only) sits in a recess
+  of its holster. The high-poly recess floor must lie behind the deepest relief of the face, or it shows through;
+  the low-poly floor must lie at the height of the face, or the face is outside the bake cage. → verifying
+  (`decals_visible` on the covering part, even when the pair is a declared union).
+- **End caps of a long prism are elongated n-gons.** `tramos=` does not split them (110:1 on a 233 mm cover with
+  2.5 mm corners). `Q.cuadrar` the high poly too, and keep the geometry gate in front of Painter in any chained run.
+- **Detail inside a hollow can be outside the cage.** A BNC centre pin was 3.3 mm from the connector wall: the
+  distance is to the nearest low-poly surface, not to the floor it stands on.
+- **Stills of a prop over ~2 m.** The studio backdrop is 24 m across: a 4.3 m array rendered empty until the
+  backdrop was scaled ×2.5 in that scene. And a view "from below" of something standing on the floor puts the camera
+  under the floor: black frame. Use a low side view.
+
 ## UV
 
 - **One object per texture set until unwrapped; `juntar()` after.** Lantern:

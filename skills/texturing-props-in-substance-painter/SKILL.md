@@ -170,6 +170,8 @@ Full example: `reference/example_recipe_knife.py` (118 operations).
 | A black part looks burnt, or a pale one blown white, in one still only | the key light mirrors in it from that camera | try three or four camera directions before touching roughness: raising roughness turns the reflection into a grey haze, which is the burnt look |
 | The layers in Painter are the previous recipe | the recipe file was rewritten by a script and the editor's write was refused; `rehacer` applied the old file | compare the operation count `sp.py rehacer` prints with the one you expect |
 | `AO` 0 on a few percent of the map | faces pressed against another part (sheath layers) | Expected; check they are hidden faces before changing anything |
+| Glass or paint comes out brown, covered by a layer meant to be sparse | `escaneo(f, position, contrast)`: a HIGHER position covers MORE, the opposite of what the name suggests. Measured by solving the blend on a PV module glass | Sparse layers (scratches, stains) at positions 0.1–0.2; 0.4–0.5 only for layers that should cover about half |
+| Print of an upper part repeated on the part below it (resistor colour bands on the board under them) | one art image projected onto stacked carriers that are all the print class | One image per level, or a covering piece listed as `tapan` so it bakes black |
 
 ## Decide the object's age before the first layer
 
