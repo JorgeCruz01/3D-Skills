@@ -567,7 +567,9 @@ def todo(cfg, desde_lp=False, hasta_uv=False, despiece=True):
         for s in LPm.SETS:
             o = LPm.objeto_set(s)
             ex = cfg.costuras(s) if getattr(cfg, "costuras", None) else None
-            i = uv.desplegar([o], extra=ex, metodo=cfg.METODO.get(s, "MINIMUM_STRETCH"))
+            # margen por set (cfg.MARGEN): con ~800 islas pequenas el margen por defecto se comia el atlas (30 %)
+            i = uv.desplegar([o], extra=ex, metodo=cfg.METODO.get(s, "MINIMUM_STRETCH"),
+                             margen=getattr(cfg, "MARGEN", {}).get(s, 0.003))
             out["uv_info"][s] = {"islas": i[o]["islas"], "no_disco": i[o]["no_disco"], "refinado": i["refinado"], "analiticas": uv_analitica(o)}
             if getattr(cfg, "tras_uv", None):        # retoque propio del prop (agrandar las islas con rotulos, por ejemplo)
                 out["uv_info"][s]["tras_uv"] = cfg.tras_uv(s, o)

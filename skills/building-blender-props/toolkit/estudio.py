@@ -191,3 +191,59 @@ def preparar(coleccion, camara="CAM_Beauty", res=(2560, 2560), margen=0.12):
     r = escalar_luces(coleccion)
     r["encuadre"] = encuadrar(camara, coleccion, margen, res)
     return r
+
+
+TARJETAS = (  # (posicion en tamanos del prop desde el centro, (ancho, alto) en tamanos, fuerza)
+    ((-1.1, -0.9, 0.2), (0.35, 1.6), 6.0),      # tira vertical a la izquierda delante: el filo de luz largo
+    ((1.2, -0.6, 0.3), (0.5, 1.4), 4.0),        # caja a la derecha
+    ((0.0, 0.2, 1.4), (1.2, 0.6), 3.0),         # techo
+    ((0.3, 1.3, 0.1), (0.3, 1.4), 3.5),         # tira de contra
+)
+
+
+def tarjetas(coleccion, specs=TARJETAS, color=(1.0, 0.98, 0.95)):
+    """Tarjetas de reflejo para metal pulido o lacado: planos emisivos que NO ve la camara ni dan luz difusa ni sombra,
+    solo se reflejan. Sin ellas un laton al 0,14 de rugosidad refleja un ciclorama gris uniforme y se lee mate.
+    Se recrean a la escala del prop en cada llamada (coleccion `Tarjetas`)."""
+    lo, hi = _bbox(coleccion)
+    c = (lo + hi) / 2
+    s = max(hi - lo)
+    col = bpy.data.collections.get("Tarjetas")
+    if col is None:
+        col = bpy.data.collections.new("Tarjetas")
+        bpy.context.scene.collection.children.link(col)
+    for o in list(col.objects):
+        d = o.data
+        bpy.data.objects.remove(o)
+        bpy.data.meshes.remove(d)
+    m = bpy.data.materials.get("_Tarjeta") or bpy.data.materials.new("_Tarjeta")
+    m.use_nodes = True
+    nt = m.node_tree
+    nt.nodes.clear()
+    e = nt.nodes.new("ShaderNodeEmission")
+    e.inputs["Color"].default_value = (*color, 1)
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    nt.links.new(e.outputs["Emission"], out.inputs["Surface"])
+    for i, (p, (w, h), f) in enumerate(specs):
+        me = bpy.data.meshes.new("_tarjeta%d" % i)
+        me.from_pydata([(-w / 2, -h / 2, 0), (w / 2, -h / 2, 0), (w / 2, h / 2, 0), (-w / 2, h / 2, 0)], [], [(0, 1, 2, 3)])
+        me.materials.append(m)
+        o = bpy.data.objects.new("Tarjeta_%d" % i, me)
+        col.objects.link(o)
+        o.location = c + Vector(p) * s
+        o.scale = (s, s, s)
+        o.rotation_mode = "QUATERNION"
+        o.rotation_quaternion = (c - o.location).normalized().to_track_quat("Z", "Y")
+        o["fuerza"] = f
+        o.visible_camera = False
+        o.visible_diffuse = False
+        o.visible_shadow = False
+        o.visible_volume_scatter = False
+        o.visible_transmission = False
+    e.inputs["Strength"].default_value = 1.0
+    # cada tarjeta con su fuerza: material por tarjeta
+    for o in col.objects:
+        mm = m.copy()
+        mm.node_tree.nodes["Emission"].inputs["Strength"].default_value = o["fuerza"]
+        o.data.materials[0] = mm
+    return {"n": len(col.objects), "escala_m": round(s, 3)}

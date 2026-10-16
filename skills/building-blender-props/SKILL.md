@@ -172,6 +172,23 @@ build — most first-build crossings were visible in the numbers.
   adds them back.
 - `F.sombrear(o, 40)` on every exact part; `colar` does it for cast ones.
 
+### Curved tubes and dense mechanisms (alto saxophone, 23 keys)
+
+- A curved tube is ONE centreline with rotation-minimising frames plus a closed meridian (s, r) swept around it
+  (wall, rolled lip, socket in one contour). Place every fitting in (s, angle) on that same curve. **Measure the
+  centreline's minimum radius of curvature against the tube radius**: a straight final segment turned a bell into an
+  S of 39 mm radius against a 35 mm tube and the flare folded.
+- Build key-work against `pairwise_intersections` from the first assembly (254 crossings on the first pass). Rules
+  that cleared it: intermediate posts go in the centre of the free gap between hinge tubes; an arm ends ON its hinge
+  tube, never inside the rod; a spring post picks its side by measured clearance to the tone holes; linkage rods never
+  run over holes; open cups tilt away from their chimney.
+- Soldered or cast assemblies (cup + arm + hinge + touch) are fused per key with `colada.colar`; separate primitives
+  read as lollipops. If decimation leaves >100:1 strips on flat areas, decimate less in a loop until the gate passes.
+- Many tiny UV islands (~800): give that set its own packing margin (`cfg.MARGEN` in `prep.todo`); the default margin
+  left 30 % coverage.
+- Polished metal needs reflection cards (`estudio.tarjetas`: emissive planes invisible to camera, diffuse and shadow);
+  set the backdrop's specular to 0 or it reflects them as a bright rectangle.
+
 ### 6 · Low poly
 
 **The low poly is 100 % quads** — no triangles, no n-gons — and is built without
