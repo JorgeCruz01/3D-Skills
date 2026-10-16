@@ -569,6 +569,8 @@ def todo(cfg, desde_lp=False, hasta_uv=False, despiece=True):
             ex = cfg.costuras(s) if getattr(cfg, "costuras", None) else None
             i = uv.desplegar([o], extra=ex, metodo=cfg.METODO.get(s, "MINIMUM_STRETCH"))
             out["uv_info"][s] = {"islas": i[o]["islas"], "no_disco": i[o]["no_disco"], "refinado": i["refinado"], "analiticas": uv_analitica(o)}
+            if getattr(cfg, "tras_uv", None):        # retoque propio del prop (agrandar las islas con rotulos, por ejemplo)
+                out["uv_info"][s]["tras_uv"] = cfg.tras_uv(s, o)
         out["afinidad_uv"] = {o: {k: v for k, v in V.uv_quad_affinity(o).items() if k != "evaluated"} for o in objs}
         out["anisotropia_uv"] = anisotropia(objs)
         out["uv"] = tanda.medir_uv(objs)

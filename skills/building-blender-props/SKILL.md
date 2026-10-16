@@ -147,7 +147,8 @@ Cast or exact?
 
 Outlines drawn with a dozen points go through `F.spline`; visible boxes are
 `F.caja_blanda`; bevels on concave or elongated outlines use
-`prisma(por_normal=True)`. Review the constants for overlaps before the first
+`prisma(por_normal=True)`. `F.prisma` along axis "Y" mirrors the outline in X (a memo holder came out reversed: `M[:, 0] *= -1`).
+Review the constants for overlaps before the first
 build — most first-build crossings were visible in the numbers.
 
 ### 3 · High poly
@@ -187,6 +188,9 @@ booleans or decimation. Constructions, measured cases and costs:
 
 - Holes that only house another part are left out and the parts **cross**.
   Slots, channels and rounded window ends go to the normal map. Declare both.
+- `Q.quitar_ocultas` (drop faces buried inside another solid of the set: 48 % of a camera body's faces) can take a
+  LARGE VISIBLE face whose sample points all land inside a neighbour. Render the set in grey after it; on the camera
+  the front band of the chassis vanished and the chassis had to be split into two parts first.
 - Close the phase on `Q.censo` (`tris == 0`, `ngonos == 0`, watertight) and
   `Q.desvio(lp, hp, tope=<extrusion in mm>)`; look at `Q.lamina`.
 - `Q.cuadrar` needs even boundaries: `F.seg` rounds to even; resample hand

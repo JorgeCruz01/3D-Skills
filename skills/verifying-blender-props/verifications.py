@@ -1644,6 +1644,59 @@ def uv_quad_affinity(name, texture_res=4096, threshold_px=4.0):
             "threshold_px": threshold_px}
 
 
+def uv_diagonal_shift(name, texture_res=4096, threshold_px=4.0):
+    """For every quad, how far (in texels) a point of the face lands in the texture depending on which diagonal splits
+    the quad. That displacement is exactly what shows in the render when baker and renderer split differently.
+
+    Prefer it to `uv_quad_affinity` as the pass/fail number: the affine fit there divides by the quad's own edge
+    vectors and explodes on near-degenerate quads (391 px reported on a face 15 px across, which cannot move anything
+    by more than 15 px). This one samples a 3 x 3 grid inside the face and maps it through both splits.
+
+    Real case: a rolling-mill housing door, ONE planar 1.5 x 1.5 m quad. The unwrap had glued it through 45-degree
+    bevel chamfers (not cut at a 50-degree seam angle) into a bent island, and SLIM spread the distortion into the big
+    quad: parallelogram defect 0.46. Painter baked the occlusion of the central hatch along one diagonal, Blender
+    rendered along the other: a hard-edged dark polygon (AO 0.06 next to 0.95 on the same face) appeared on the door,
+    with no overlap, no null UV, the geometry equally unoccluded at both points. 3,109 quads over 4 px across ten sets.
+    Fix that worked: unwrap, then give every offending quad its own island and unwrap again; a lone planar quad
+    unwraps undistorted. Very long slivers (3.7 m x 40 mm) still come out trapezoidal from SLIM: replace their UV by
+    the exact planar projection fitted (similarity) onto where the island already is."""
+    from mathutils import Vector
+    from mathutils.geometry import barycentric_transform as bt
+    import numpy as np
+    me = bpy.data.objects[name].data
+    uv = me.uv_layers.active.data
+    I, J, K = Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1))
+
+    def through(q, P, U, tris):
+        for a, b, c in tris:
+            if min(bt(q, P[a], P[b], P[c], I, J, K)) > -1e-4:
+                return bt(q, P[a], P[b], P[c], U[a], U[b], U[c])
+
+    worst, shifts = [], []
+    for f in me.polygons:
+        if len(f.vertices) != 4:
+            continue
+        P = [me.vertices[i].co for i in f.vertices]
+        U = [Vector((*uv[l].uv, 0)) for l in f.loop_indices]
+        s = 0.0
+        for t in (0.25, 0.5, 0.75):
+            for w in (0.25, 0.5, 0.75):
+                q = P[0].lerp(P[1], t).lerp(P[3].lerp(P[2], t), w)
+                a, b = through(q, P, U, ((0, 1, 2), (0, 2, 3))), through(q, P, U, ((0, 1, 3), (1, 2, 3)))
+                if a is not None and b is not None:
+                    s = max(s, (a - b).length * texture_res)
+        shifts.append(s)
+        if s > threshold_px:
+            worst.append((f.index, round(s, 1)))
+    if not shifts:
+        return {"ok": False, "evaluated": 0}
+    e = np.array(shifts)
+    worst.sort(key=lambda x: -x[1])
+    return {"ok": not worst, "evaluated": len(shifts), "median_px": round(float(np.median(e)), 2),
+            "p95_px": round(float(np.percentile(e, 95)), 2), "max_px": round(float(e.max()), 2), "over": len(worst),
+            "worst": worst[:10], "threshold_px": threshold_px}
+
+
 def lp_normal_skew(name, min_area_mm2=400.0, threshold_deg=5.0):
     """Large flat low-poly faces whose shading normals lean away from the face normal.
 
