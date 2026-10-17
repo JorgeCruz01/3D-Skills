@@ -294,13 +294,16 @@ def hornear(hp, lp, sets, destino, res=4096, extrusion=0.004, max_ray=0.0, marge
     return resultado
 
 
-def material_final(nombre, rutas, transmision=0.0, ior=1.45, alpha=1.0, ao=0.0):
+def material_final(nombre, rutas, transmision=0.0, ior=1.45, alpha=1.0, ao=0.0, recorte=False):
     """Material de entrega de la LP: BaseColor + ORM + Normal sobre la UV.
 
     `ao` (0-1): cuanto oscurece el color el canal de oclusion del ORM. El Principled no
     tiene entrada de oclusion y un motor de juego si la aplica; sin ella, el detalle que
     sobresale horneado (cincha sobre tela) pierde su sombra de contacto y la LP se ve
-    lavada. Solo para renders: el glTF se exporta con el material sin esta mezcla."""
+    lavada. Solo para renders: el glTF se exporta con el material sin esta mezcla.
+
+    `recorte`: el BaseColor lleva la opacidad en su canal alfa (chapa perforada, hojas). Pasa
+    por un Math ROUND hasta el Alpha: recorte duro en Cycles y alphaMode MASK en el glTF."""
     mat = bpy.data.materials.get(nombre) or bpy.data.materials.new(nombre)
     mat.use_nodes = True
     mat.use_fake_user = True
@@ -344,4 +347,11 @@ def material_final(nombre, rutas, transmision=0.0, ior=1.45, alpha=1.0, ao=0.0):
         b.inputs["Transmission Weight"].default_value = transmision
         b.inputs["IOR"].default_value = ior
     b.inputs["Alpha"].default_value = alpha
+    if recorte:
+        tcol.image.alpha_mode = "STRAIGHT"
+        rd = nt.nodes.new("ShaderNodeMath")
+        rd.operation = "ROUND"
+        rd.location = (-50, 120)
+        nt.links.new(tcol.outputs["Alpha"], rd.inputs[0])
+        nt.links.new(rd.outputs["Value"], b.inputs["Alpha"])
     return mat

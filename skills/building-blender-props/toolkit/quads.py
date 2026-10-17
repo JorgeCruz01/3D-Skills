@@ -559,7 +559,7 @@ def ventana(ob, dentro, fondo, soldar=0.0):
     return len(caras)
 
 
-def bloque(nombre, x, y, z, coleccion, rebajes=(), tol=0.4 * MM):
+def bloque(nombre, x, y, z, coleccion, rebajes=(), tol=0.4 * MM, extra=()):
     """Bloque mecanizado sin booleano: una caja con rejilla (`formas.caja_rejilla`)
     cuyos lazos caen en los bordes de cada rebaje, y los rebajes abiertos con
     `ventana`. `x`, `y`, `z`: (minimo, maximo) en metros. Cada rebaje:
@@ -568,12 +568,15 @@ def bloque(nombre, x, y, z, coleccion, rebajes=(), tol=0.4 * MM):
         {"cara": "+Z", "centro": (a, b), "r": radio, "fondo": profundidad}
 
     `a`, `b` son los dos ejes del plano de la cara, en orden XYZ (cara +-Y:
-    x, z). El rebaje redondo sale octogonal (el mapa de normales lo redondea).
+    x, z). El rebaje redondo sale poligonal y circunscrito al circulo (el mapa de
+    normales lo redondea).
     Con "pasante": True el rebaje atraviesa el bloque (no hace falta "fondo"):
     se hunde hasta la cara opuesta y se borran su suelo y las caras de enfrente,
     que coinciden porque la rejilla es la misma en las dos caras.
     Las cotas a menos de `tol` de un lazo ya existente se llevan a el: dos
-    lazos a 0.1 mm dejan una tira de caras de 300:1."""
+    lazos a 0.1 mm dejan una tira de caras de 300:1.
+    `extra`: lazos extra ((eje 0-2, cota en metros), ...), para mover despues
+    sus vertices (un chaflan, por ejemplo)."""
     import formas
     lim = [tuple(x), tuple(y), tuple(z)]
     lineas = [list(l) for l in lim]
@@ -584,6 +587,8 @@ def bloque(nombre, x, y, z, coleccion, rebajes=(), tol=0.4 * MM):
 
     def cerca(eje, v):
         return min(lineas[eje], key=lambda w: abs(w - v))
+    for eje, v in extra:
+        anadir(eje, v)
     prep = []
     for r in rebajes:
         n = "XYZ".index(r["cara"][1])
@@ -608,15 +613,27 @@ def bloque(nombre, x, y, z, coleccion, rebajes=(), tol=0.4 * MM):
         q_ = lim[n][0] if sg > 0 else lim[n][1]          # cara opuesta
         pasante = bool(r.get("pasante"))
         hondo = abs(p - q_) if pasante else r["fondo"]
-        if "r" in r:                    # las cuatro esquinas del cuadrado pasan a la diagonal del octogono
+        if "r" in r:
+            # todos los vertices del borde del cuadrado pasan al poligono que CIRCUNSCRIBE el circulo: radio
+            # R / cos(mayor hueco angular / 2). Antes solo se movian las cuatro esquinas: un lazo de otro rebaje que
+            # cruzaba el cuadrado dejaba un vertice en el borde a 1,16 R (un woofer de 61 mm asomaba por fuera de su
+            # aro de 68,5) y las aristas de las esquinas cortaban el circulo
             ca, cb = (la[0] + la[-1]) / 2, (lb[0] + lb[-1]) / 2
-            ra, rb = (la[-1] - la[0]) / 2 * 0.70710678, (lb[-1] - lb[0]) / 2 * 0.70710678
+            R = (la[-1] - la[0]) / 2
+            borde = []
             for v in ob.data.vertices:
                 en_cara = abs(v.co[n] - p) < 1e-7 or (pasante and abs(v.co[n] - q_) < 1e-7)
-                if en_cara and min(abs(v.co[a] - la[0]), abs(v.co[a] - la[-1])) < 1e-7 \
-                        and min(abs(v.co[b] - lb[0]), abs(v.co[b] - lb[-1])) < 1e-7:
-                    v.co[a] = ca + (ra if v.co[a] > ca else -ra)
-                    v.co[b] = cb + (rb if v.co[b] > cb else -rb)
+                if en_cara and la[0] - 1e-7 < v.co[a] < la[-1] + 1e-7 and lb[0] - 1e-7 < v.co[b] < lb[-1] + 1e-7 \
+                        and (min(abs(v.co[a] - la[0]), abs(v.co[a] - la[-1])) < 1e-7
+                             or min(abs(v.co[b] - lb[0]), abs(v.co[b] - lb[-1])) < 1e-7):
+                    borde.append(v)
+            ang = sorted({round(math.atan2(v.co[b] - cb, v.co[a] - ca), 6) for v in borde})
+            hueco = max([y - x for x, y in zip(ang, ang[1:])] + [ang[0] + 2 * math.pi - ang[-1]])
+            rho = R / math.cos(hueco / 2)
+            for v in borde:
+                t = math.atan2(v.co[b] - cb, v.co[a] - ca)
+                v.co[a] = ca + rho * math.cos(t)
+                v.co[b] = cb + rho * math.sin(t)
 
         def dentro(c, nrm, n=n, sg=sg, a=a, b=b, la=la, lb=lb, p=p):
             return nrm[n] * sg > 0.9 and abs(c[n] - p) < 1e-6 and la[0] < c[a] < la[-1] and lb[0] < c[b] < lb[-1]

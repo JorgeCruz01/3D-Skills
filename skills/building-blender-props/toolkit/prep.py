@@ -397,8 +397,16 @@ def lejos(objs, noms, tope_mm=2.0):
     """Caras de la low poly a mas de `tope_mm` del high poly, separadas en ENTERRADAS dentro de un solido del high
     poly (no se ven) y VISTAS, que son desvio real. `Q.desvio` da el maximo, no donde esta."""
     from mathutils.bvhtree import BVHTree
-    dg = bpy.context.evaluated_depsgraph_get()
-    arboles = {n: BVHTree.FromObject(bpy.data.objects[n], dg) for n in noms}
+    # arboles en coordenadas de mundo: FromObject las da en las del objeto, y una pieza con el origen en su pivote
+    # (puerta, teclas, asa del radiocasete) salia a 38 mm de su low poly sin estarlo
+    arboles = {}
+    for n in noms:
+        ob = bpy.data.objects[n]
+        bm = bmesh.new()
+        bm.from_mesh(ob.data)
+        bm.transform(ob.matrix_world)
+        arboles[n] = BVHTree.FromBMesh(bm)
+        bm.free()
     dirs = [Vector((0.577, 0.577, 0.577)), Vector((-0.31, 0.82, 0.48)), Vector((0.71, -0.2, -0.67))]
 
     def dentro(p):
